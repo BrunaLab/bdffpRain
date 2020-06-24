@@ -1,0 +1,133 @@
+---
+title: "Wrangling Precipitation Data"
+author: "Eric R. Scott"
+date: "2020-06-24"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(conflicted)
+library(readxl)
+library(lubridate)
+library(janitor)
+library(hms)
+conflict_prefer("filter", "dplyr")
+```
+
+*Last compiled: `r Sys.Date()`*
+
+# Purpose
+
+Reading and wrangling precip data
+
+# Reading and parsing data
+
+The HORA column is sometimes formatted as text and sometimes as time.  Read in both ways and join.
+
+```{r data, echo=TRUE}
+sheets <- excel_sheets(here("data_raw", "rain", "41dia.xls"))
+sheets <- sheets[1:(length(sheets) - 2)]
+
+site41_raw <-
+  map_df(sheets, ~ read_excel(
+    here("data_raw", "rain", "41dia.xls"),
+    skip = 2,
+    sheet = .x,
+    col_types = c("date", "numeric", "text", "numeric", "text", "text")
+  ))
+
+time_as_date <-
+  map_df(sheets, ~ suppressWarnings(read_excel(
+    here("data_raw", "rain", "41dia.xls"),
+    skip = 2,
+    sheet = .x,
+    col_types = c("date", "numeric", "text", "numeric", "date", "text")
+  )))
+
+site41_raw <- site41_raw %>% add_column(time_as_date = time_as_date$HORA)
+site41_raw
+```
+
+## Data Dictionary
+
+There are 8 sites, each with a .xls spreadsheet with multiple tabs.  Each tab contains data from 3 years and the last two tabs have some aggregated data done in Excel.
+
+- `DATA`: Date
+- `CHUVA`: Rainfall in mm (?)
+- `OBSERVADOR`: the name of the person who recorded the data
+- `DIA`: day of year
+- `HORA`: time of collection in 24-hr time  (sometimes as text, sometimes as time)
+- `COMMENTARIO`: notes.  For example, whether the data was aggregated over previous days because no one was around to check the gauge.
+
+
+
+# Cleaning
+
+## Basics
+
+- Remove missing rows
+- Make column headings lowercase
+
+```{r}
+site41 <- 
+  site41_raw %>% 
+  clean_names() %>% 
+  filter(!is.na(data))
+```
+
+
+## Quality Control
+
+### Check times
+
+For the HORA column in Excel, sometimes the entry is character and sometimes it is a time.  When `read_excel` uses "text", then the character entries read in correctly, but the time entries read in as a weird decimal number.  When `read_excel()` uses "date", then the character entries read in as `<NA>` and the time entries read in as the correct time, but on the date 1899-12-31. There are also some text entries of time that include notes, for example, "7:00    chuva noite<0,1", or are entirely notes, e.g. "nao foi feita observ". 
+
+1. Extract notes and times separately from the `hora` column.
+2. Convert the `hora` column to time
+3. Merge and remove columns so there is `time` and `time_notes` left.
+
+- get rid of "time_notes" if it was read in as datetime.  I.e. only do this note extraction for times read in as text.
+
+```{r}
+site41_2 <- 
+  site41 %>% 
+  mutate(time_notes = str_remove(hora, "\\d{1,2}:\\d{2}"), #everything except times
+         hora = str_replace(hora, "(?<=\\d{1,2});(?=\\d{2})", ":"), #fix semi-colon typos
+         time = parse_hm(str_extract(hora, "\\d{1,2}:\\d{2}"))) %>% #convert to time
+  mutate(time_notes = ifelse(!is.na(time_as_date), NA, time_notes), #get rid of notes that shouldn't be there
+         time_notes = na_if(time_notes, "")) %>% 
+  mutate(time_as_date = as_hms(time_as_date)) %>% #merge two times
+  mutate(time = as_hms(ifelse(!is.na(time_as_date), time_as_date, time)))
+```
+
+Check that you got them all by comparing original data read in both ways to new time column and look for NAs.
+
+```{r}
+site41_2 %>% 
+  filter(!is.na(hora) & is.na(time))
+```
+
+Get rid of unused columns
+
+```{r}
+site_41_clean <-
+  site41_2 %>% 
+  select(data, chuva, observador, dia, time, time_notes, commentario)
+```
+
+
+
+- Check that aggregated measures always correspond with a comment, otherwise figure this out programatically
+- Check that `DIA` matches day of year calculated from date.
+
+
+
