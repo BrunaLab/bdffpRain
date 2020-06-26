@@ -23,12 +23,25 @@ select <- dplyr::select
 
 *Last compiled: `r Sys.Date()`*
 
+# TODO:
+
+- Try `SPEI` package
+- Do I need to transform data to normal-ish?
+- Use Pearson III distribution instead of Gamma?
+- Read Guttman, N.B., 1999. Accepting the Standardized Precipitation Index: A calculation algorithm. Journal of the American Water Resources Association, 35(2), 311-322.
+- Read other resources here: http://www.ncl.ucar.edu/Applications/spi.shtml
 
 # Purpose
 
 Figure out how to calculate Standardized Precipitation Index *sensu* McKee, T.B., Doesken, N.J. & Kleist, J. (1993) The relationship of drought frequency and duration to time scales. Proceedings of the 8th Conference on Applied Climatology, 17, 179–183.
 
 There exists a package, `spi`, that claims to have implemented this, but it is not coded well and barely usable.  Also, I think it might be wrong.
+
+# General idea
+
+The general idea of Standardized Precipitation Index is to fit a distribution to precipitation (or standardized precipitation) to get probabilities, then back-transform those probabilities with an inverse Gaussian to get things in terms of standard deviations.  Those standard deviation units are the Standardized Precipitation Index (SPI).
+
+Most people seem to agree that either a Gamma distribution or a Pearson III distribution should be used to fit the data.  What seems really inconsistent is *what data*.  The original source (McKee et al. 1993) seems to suggest using a windowed average (3, 6, 12, or 24 months) and then standardizing precip using the past period.  Other sources seem to suggest the windowed average, but over *all years*.  Others seem to just use raw precip data (which seems wrong).
 
 # Load Data
 
@@ -42,6 +55,7 @@ spi_tidy <-
   rename(month = Months)
 spi_tidy
 ```
+
 So, these data aren't continuous since they're only for 7 months of the year.  I think continuous data is a requirement for calculating SPI.  If that's true, then there's no way the `spi` package is correct.
 
 # Analysis
@@ -54,9 +68,17 @@ I'll be using 3 months.
 
 >"The data set is moving in the sense that each month a new value is determined from the previous *i* months."
 
+
 >"Standardized precipitation is simply the difference of precipitation from the mean for a specified time period divided by the standard deviation where the mean and standard deviation are determined from past records."
 
+So this sounds like a rolling average, but according to [another source](https://www.in.gov/dnr/water/4864.htm), it might mean the average of that 3-month period from all *previous years*:
+
+>"The 3-month SPI provides a comparison of the precipitation over a specific 3-month period with the precipitation totals from the same 3-month period for all the years included in the historical record. In other words, a 3-month SPI at the end of February compares the December-January-February precipitation total in that particular year with the December-February precipitation totals of all the years. A 3-month SPI reflects short- and medium-term moisture conditions and provides a seasonal estimation of precipitation."
+
+This is fewer data points on which to fit a distribution
+
 ```{r}
+#TODO change to be rolling 3-month average but over all years?
 spi1 <- 
   spi_tidy %>%
   arrange(year) %>% 
@@ -75,18 +97,15 @@ spi1
 
 >"Each of the data sets [one per value of *i*] are fitted to the Gamma function to define the relationship of probability to precipitation."
 
-I'm not exactly sure what this means.  
+- `MASS::fitdistr(x, densfun)` fits data to distributions with maximum liklihood and returns coefficients of a function (shape and rate) with standard errors
 
-- `gamma(x)` is the gamma function in R. It returns a vector including a lot of `Inf` values.
-- `pgamma(x)` is the gamma distribution function, and requires a shape parameter.
-- `MASS::fitdistr(x, densfun)` fits data to distributions and returns coefficients of a function (shape and rate) with standard errors
-
-I think I want to do the third thing, `fitdistr()`
+Guttman et al. 1999 suggest using a Pearson III distribution instead.  Not sure how to fit that in R yet.  The Pearson III might only be better if the site has a lot of months with 0 rainfall.
 
 ```{r}
 x <- fitdistr(spi1$sp, densfun = "gamma")
 coef(x)
 ```
+
 **NOTE**: The `spi` package uses `ecdf()` for this step, which is an "empirical cumulative distribution function", *not* a gamma function.
 
 >"Once the relationship of probability to precipitation is established from the historic records, the probability of any observed precipitation data point is calculated ..."
@@ -96,6 +115,7 @@ spi_tidy2 <- spi_tidy %>%
   mutate(precip_p = pgamma(precip, shape = coef(x)[1], rate = coef(x)[2]))
 spi_tidy2
 ```
+
 ## Convert probabilities to SPI
 
 >"...and used along with an estimate of the inverse normal to calculate the precipitation deviation for a normally distributed probability density with a mean of zero and a standard deviation of unity."
@@ -109,7 +129,7 @@ spi_final
 
 # Compare with spi package results
 
-Note, this almost *has* to be wrong since the example dataset doesn't include 12 months of continuous data.  Not sure how the moving average could even be calculated acording to McKee et al. 1993
+Note, this almost *has* to be wrong since the example data set doesn't include 12 months of continuous data.  Not sure how the moving average could even be calculated according to McKee et al. 1993
 
 ## spi package results:
 
@@ -124,11 +144,12 @@ write.table(spi_data,file="spi.txt",quote=FALSE,row.names=TRUE)
 
 spi(3,"spi.txt",1963,2010)
 ```
+
 ## My results: 
 
 ```{r}
 spi_final %>% select(month, year, spi) %>% 
   pivot_wider(names_from = month, values_from = spi)
 ```
-Relatively similar, but definitely different.  Also, neither are correct since the moving average is calculated with missing months.
 
+Relatively similar, but definitely different.  Also, neither are correct since the moving average is calculated with missing months.
