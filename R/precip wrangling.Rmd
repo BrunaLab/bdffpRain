@@ -21,6 +21,7 @@ library(lubridate)
 library(janitor)
 library(hms)
 conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
 ```
 
 *Last compiled: `r Sys.Date()`*
@@ -34,27 +35,34 @@ Reading and wrangling precip data
 The HORA column is sometimes formatted as text and sometimes as time.  Read in both ways and join.
 
 ```{r data, echo=TRUE}
-sheets <- excel_sheets(here("data_raw", "rain", "41dia.xls"))
-sheets <- sheets[1:(length(sheets) - 2)]
+sites <- list.files(here("data_raw", "rain"))
+names(sites) <- str_remove(sites, "\\..+$")
 
-site41_raw <-
-  map_df(sheets, ~ read_excel(
-    here("data_raw", "rain", "41dia.xls"),
-    skip = 2,
-    sheet = .x,
-    col_types = c("date", "numeric", "text", "numeric", "text", "text")
-  ))
+all_raw <- map_df(sites, ~{
+  site <- .x
+  sheets <- excel_sheets(here("data_raw", "rain", site))
+  sheets <- sheets[str_detect(sheets, "\\d{4}")]
+
+  site_raw <-
+    map_df(sheets, ~ read_excel(
+      here("data_raw", "rain", site),
+      sheet = .x,
+      range = cell_limits(c(3,1), c(NA, 6)),
+      col_types = c("date", "numeric", "text", "numeric", "text", "text")
+    ))
 
 time_as_date <-
   map_df(sheets, ~ suppressWarnings(read_excel(
-    here("data_raw", "rain", "41dia.xls"),
-    skip = 2,
+    here("data_raw", "rain", site),
     sheet = .x,
+    range = cell_limits(c(3,1), c(NA, 6)),
     col_types = c("date", "numeric", "text", "numeric", "date", "text")
   )))
 
-site41_raw <- site41_raw %>% add_column(time_as_date = time_as_date$HORA)
-site41_raw
+site_raw <- site_raw %>% add_column(time_as_date = time_as_date$HORA)
+},
+.id = "site")
+sample_n(all_raw, 7)
 ```
 
 ## Data Dictionary
@@ -78,14 +86,24 @@ There are 8 sites, each with a .xls spreadsheet with multiple tabs.  Each tab co
 - Make column headings lowercase
 
 ```{r}
-site41 <- 
-  site41_raw %>% 
+all <- 
+  all_raw %>% 
   clean_names() %>% 
   filter(!is.na(data))
 ```
 
 
 ## Quality Control
+
+### Check that there are no missing dates
+
+This might actually be easier to do before merging all sites into one df.  Might want to keep as a list until the very end?  Or maybe can do with a `group(site)`?
+
+```{r}
+#TODO
+```
+
+- Check that `DIA` matches day of year calculated from date.
 
 ### Check times
 
@@ -98,8 +116,8 @@ For the HORA column in Excel, sometimes the entry is character and sometimes it 
 - get rid of "time_notes" if it was read in as datetime.  I.e. only do this note extraction for times read in as text.
 
 ```{r}
-site41_2 <- 
-  site41 %>% 
+all_2 <- 
+  all %>% 
   mutate(time_notes = str_remove(hora, "\\d{1,2}:\\d{2}"), #everything except times
          hora = str_replace(hora, "(?<=\\d{1,2});(?=\\d{2})", ":"), #fix semi-colon typos
          time = parse_hm(str_extract(hora, "\\d{1,2}:\\d{2}"))) %>% #convert to time
@@ -112,22 +130,45 @@ site41_2 <-
 Check that you got them all by comparing original data read in both ways to new time column and look for NAs.
 
 ```{r}
-site41_2 %>% 
+all_2 %>% 
   filter(!is.na(hora) & is.na(time))
 ```
+
+**manually fix these errors??**
+
 
 Get rid of unused columns
 
 ```{r}
-site_41_clean <-
-  site41_2 %>% 
-  select(data, chuva, observador, dia, time, time_notes, commentario)
+all_clean <-
+  all_2 %>% 
+  select(site, data, chuva, observador, dia, time, time_notes, comentario)
+all_clean
 ```
 
+## Annotate and tidy
 
+### Check / mark accumulated data
 
-- Check that aggregated measures always correspond with a comment, otherwise figure this out programatically
-- Check that `DIA` matches day of year calculated from date.
+After no one uses a site for a while, the next observation is accumulated.  Sometimes it is marked as such in the comments, but not always.  Other times, the site has maybe not been used for over a month and the next observation doesn't seem like it is accumulated.  I'm not sure the best way to deal with this right now.
+
+```{r}
+unique(all_clean$site)
+all_clean2 <-
+  all_clean %>% 
+  group_by(site) %>% 
+  #anything observation preceded by an NA note as "Accumulated"
+  mutate(accumulated = ifelse(is.na(lag(chuva, default = 1)) & !is.na(chuva), "accumulated", NA)) %>%
+  #remove missing observations
+  filter(!is.na(chuva))
+
+# E.g. at this site there are long stretches of NAs followed by low precip values.
+all_clean2 %>% 
+  # filter(!is.na(comentario) & !comentario %in% c("Acumulado", "acumulada", "acumulado") ) %>%
+  filter(site == "COLOSSO") %>%
+  View()
+```
+
 
 
 
