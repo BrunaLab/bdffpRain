@@ -1,0 +1,49 @@
+---
+title: "Wrangling Manaus Data"
+author: "Eric R. Scott"
+date: "2020-06-29"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(conflicted)
+```
+
+*Last compiled: `r Sys.Date()`*
+
+# Purpose
+
+read in and wrangle manaus data to a data frame
+
+# Load Data
+
+```{r data, echo=TRUE}
+raw_text <- read_lines(here("data_raw", "MAO_climdata_1985-2019.rtf"))
+
+raw <- read_delim(raw_text[26:length(raw_text)], delim = ";")
+unique(raw$Hora)
+```
+
+## Data Dictionary
+
+`Dataframe1`: My data
+
+- `col1`: A variable
+- `col2`: Another variable
+
+# Wrangling steps
+
+0. get rid of `\` column and last couple of rows that didn't read correctly
+1. split data by "Hora" (which doesn't seem to actually represent time)
+2. recombine so there are half as many rows
+3. translate column headings
+3. convert date to date
