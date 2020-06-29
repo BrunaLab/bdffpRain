@@ -101,7 +101,9 @@ all
 
 ### Check that there are no missing dates
 
-This shows any problems with dates by checking the data against a sequence from earliest to latest date by day. Site 41dia is missing one day, and site CABO has many missing dates, probably due to an entry error somewhere.
+This shows any problems with dates by checking the data against a sequence from earliest to latest date by day.
+
+- the missing dates in 41dia and COLOSSO are typos
 
 ```{r}
 x <- all %>% 
@@ -115,10 +117,40 @@ for (i in 1:nrow(x)) {
 names(out) <- x$site
 tester <- bind_rows(out, .id = "site")
 
-anti_join(tester, all, by = c("site" = "site", "date" = "data"))
+missing_dates <- anti_join(tester, all, by = c("site" = "site", "date" = "data")) 
+
+missing_dates %>% 
+  group_by(site) %>% 
+  summarize(number_missing = n(),
+            min = min(date),
+            max = max(date))
+
+# missing_dates %>% filter(site %in% c("41dia", "COLOSSO"))
 ```
 
 - Check that `DIA` matches day of year calculated from date.
+
+```{r}
+all %>% 
+  mutate(doy = yday(data)) %>% 
+  filter(dia != doy) %>% 
+  group_by(site) %>% 
+  summarize(n = n(),
+            start = min(data),
+            end = max(data))
+
+all %>% 
+  mutate(doy = yday(data)) %>% 
+  # filter(dia != doy) %>% group_by(site) %>% group_split()
+```
+A few are (probably) typos,  CABO, DIMONA, and GAVIAO are off by one day for large sections, and I don't know what is going on in PORTO.  This column should be trashed and replaced by `yday(date)`.
+
+```{r}
+all <-
+  all %>% 
+  mutate(dia = yday(data))
+```
+
 
 ### Check times
 
