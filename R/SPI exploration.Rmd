@@ -16,7 +16,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(here)
-library(spi)
+library(SPEI)
+library(tsibble) #for viewing timeseries output of SPEI better.
 library(MASS)
 select <- dplyr::select
 ```
@@ -25,17 +26,17 @@ select <- dplyr::select
 
 # TODO:
 
-- Try `SPEI` package
 - Do I need to transform data to normal-ish?
 - Use Pearson III distribution instead of Gamma?
-- Read Guttman, N.B., 1999. Accepting the Standardized Precipitation Index: A calculation algorithm. Journal of the American Water Resources Association, 35(2), 311-322.
 - Read other resources here: http://www.ncl.ucar.edu/Applications/spi.shtml
 
 # Purpose
 
 Figure out how to calculate Standardized Precipitation Index *sensu* McKee, T.B., Doesken, N.J. & Kleist, J. (1993) The relationship of drought frequency and duration to time scales. Proceedings of the 8th Conference on Applied Climatology, 17, 179–183.
 
-There exists a package, `spi`, that claims to have implemented this, but it is not coded well and barely usable.  Also, I think it might be wrong.
+There exists a package, `spi`, that claims to have implemented this, but it is not coded well and barely usable.  Also, I think it might be wrong.  I'm not going to use it.
+
+I'll try comparing my calculations with the `SPEI` package.
 
 # General idea
 
@@ -45,20 +46,26 @@ Most people seem to agree that either a Gamma distribution or a Pearson III dist
 
 # Load Data
 
-```{r data, echo=TRUE}
-data(spi_data)
+I'll use the wichita dataset which has a column for year, month, and precip that I'll use.  This needs to be sorted by year and month, because the `spi()` function only uses the precip column.
 
-#I assume I'll be starting with a 'tidy' data frame
-spi_tidy <-
-  spi_data %>%
-  pivot_longer(-Months, names_to = "year", values_to = "precip", names_prefix = "X") %>% 
-  rename(month = Months)
-spi_tidy
+```{r data, echo=TRUE}
+data(wichita)
+wichita
 ```
 
-So, these data aren't continuous since they're only for 7 months of the year.  I think continuous data is a requirement for calculating SPI.  If that's true, then there's no way the `spi` package is correct.
+# Analysis with SPEI pacakge
 
-# Analysis
+```{r}
+spi(wichita$PRCP, 12) -> out
+out$fitted %>% as_tsibble()
+plot(out)
+```
+
+```{r}
+View(spi)
+```
+
+
 
 ## Prepare data
 
@@ -79,34 +86,32 @@ This is fewer data points on which to fit a distribution
 
 ```{r}
 #TODO change to be rolling 3-month average but over all years?
-spi1 <- 
-  spi_tidy %>%
-  arrange(year) %>% 
-  mutate(lag1 = lag(precip),
-         lag2 = lag(precip, 2),
-         lag3 = lag(precip, 3)) %>% 
+wichita1 <- 
+  wichita %>%
+  mutate(lag1 = lag(PRCP),
+         lag2 = lag(PRCP, 2),
+         lag3 = lag(PRCP, 3)) %>% 
   rowwise() %>% 
   mutate(mean_prev = mean(c(lag1, lag2, lag3)),
          sd_prev = sd(c(lag1, lag2, lag3)),
-         sp = precip - mean_prev / sd_prev) %>% 
+         sp = PRCP - mean_prev / sd_prev) %>% 
   filter(!is.na(sp))
-spi1
+wichita1
 ```
+Ok, I'm not understanding something correctly because this results in some negative values, which are not allowed in a Gamma distribution. 
 
 ## Fit to Gamma function
 
 >"Each of the data sets [one per value of *i*] are fitted to the Gamma function to define the relationship of probability to precipitation."
 
-- `MASS::fitdistr(x, densfun)` fits data to distributions with maximum liklihood and returns coefficients of a function (shape and rate) with standard errors
+- `MASS::fitdistr(x, densfun)` fits data to distributions with maximum likelihood and returns coefficients of a function (shape and rate) with standard errors
 
 Guttman et al. 1999 suggest using a Pearson III distribution instead.  Not sure how to fit that in R yet.  The Pearson III might only be better if the site has a lot of months with 0 rainfall.
 
 ```{r}
-x <- fitdistr(spi1$sp, densfun = "gamma")
+x <- fitdistr(wichita1$sp, densfun = "gamma")
 coef(x)
 ```
-
-**NOTE**: The `spi` package uses `ecdf()` for this step, which is an "empirical cumulative distribution function", *not* a gamma function.
 
 >"Once the relationship of probability to precipitation is established from the historic records, the probability of any observed precipitation data point is calculated ..."
 
