@@ -74,7 +74,7 @@ There are 8 sites, each with a .xls spreadsheet with multiple tabs.  Each tab co
 - `OBSERVADOR`: the name of the person who recorded the data
 - `DIA`: day of year
 - `HORA`: time of collection in 24-hr time  (sometimes as text, sometimes as time)
-- `COMMENTARIO`: notes.  For example, whether the data was aggregated over previous days because no one was around to check the gauge.
+- `COMENTARIO`: notes.  For example, whether the data was aggregated over previous days because no one was around to check the gauge.
 
 
 
@@ -84,12 +84,16 @@ There are 8 sites, each with a .xls spreadsheet with multiple tabs.  Each tab co
 
 - Remove missing rows
 - Make column headings lowercase
+- combine columns that are just typos (comentario and commentario)
 
 ```{r}
-all <- 
+all <-
   all_raw %>% 
   clean_names() %>% 
-  filter(!is.na(data))
+  filter(!is.na(data)) %>%
+  mutate(comentario = ifelse(is.na(comentario), commentario, comentario)) %>% 
+  select(-commentario)
+all
 ```
 
 
@@ -97,10 +101,21 @@ all <-
 
 ### Check that there are no missing dates
 
-This might actually be easier to do before merging all sites into one df.  Might want to keep as a list until the very end?  Or maybe can do with a `group(site)`?
+This shows any problems with dates by checking the data against a sequence from earliest to latest date by day. Site 41dia is missing one day, and site CABO has many missing dates, probably due to an entry error somewhere.
 
 ```{r}
-#TODO
+x <- all %>% 
+  group_by(site) %>% 
+  summarize(start = min(data),
+            end = max(data))
+out <- list()
+for (i in 1:nrow(x)) {
+  out[[i]] <- tibble(date = seq(x$start[i], x$end[i], by = "days"))
+}
+names(out) <- x$site
+tester <- bind_rows(out, .id = "site")
+
+anti_join(tester, all, by = c("site" = "site", "date" = "data"))
 ```
 
 - Check that `DIA` matches day of year calculated from date.
@@ -111,9 +126,8 @@ For the HORA column in Excel, sometimes the entry is character and sometimes it 
 
 1. Extract notes and times separately from the `hora` column.
 2. Convert the `hora` column to time
-3. Merge and remove columns so there is `time` and `time_notes` left.
+3. Extract any notes writen in the time column and merge with other notes.
 
-- get rid of "time_notes" if it was read in as datetime.  I.e. only do this note extraction for times read in as text.
 
 ```{r}
 all_2 <- 
@@ -136,39 +150,56 @@ all_2 %>%
 
 **manually fix these errors??**
 
-
-Get rid of unused columns
+### Consolidate comments
 
 ```{r}
 all_clean <-
   all_2 %>% 
-  select(site, data, chuva, observador, dia, time, time_notes, comentario)
+  unite(notes, c(time_notes, comentario), na.rm = TRUE, sep = "; ") %>% 
+  mutate(notes = na_if(notes, ""))
 all_clean
 ```
 
-## Annotate and tidy
+### Translate
+
+Translate column names to English
+
+```{r}
+all_clean2 <-
+  all_clean %>% 
+  select(site, date = data, doy = dia, time, observer = observador, precip = chuva, notes)
+```
+
+
+## Annotate and remove NAs
 
 ### Check / mark accumulated data
 
 After no one uses a site for a while, the next observation is accumulated.  Sometimes it is marked as such in the comments, but not always.  Other times, the site has maybe not been used for over a month and the next observation doesn't seem like it is accumulated.  I'm not sure the best way to deal with this right now.
 
+In some cases, the note "nao foi feita observ" (no observation was made) notes that a value is **not** accumulated (I think?), but this doesn't seem to be consistent.
+
 ```{r}
 unique(all_clean$site)
-all_clean2 <-
-  all_clean %>% 
+all_clean3 <-
+  all_clean2 %>% 
   group_by(site) %>% 
+  #remove leading NA's first.
+  filter(!cumall(is.na(precip))) %>% 
   #anything observation preceded by an NA note as "Accumulated"
-  mutate(accumulated = ifelse(is.na(lag(chuva, default = 1)) & !is.na(chuva), "accumulated", NA)) %>%
+  mutate(accumulated = ifelse(is.na(lag(precip, default = 1)) & !is.na(precip), "accumulated", NA)) %>%
   #remove missing observations
-  filter(!is.na(chuva))
+  filter(!is.na(precip))
 
 # E.g. at this site there are long stretches of NAs followed by low precip values.
 all_clean2 %>% 
-  # filter(!is.na(comentario) & !comentario %in% c("Acumulado", "acumulada", "acumulado") ) %>%
   filter(site == "COLOSSO") %>%
   View()
 ```
 
 
+```{r}
+write_csv(all_clean2, here("data_cleaned", "daily precip.csv"))
+```
 
 
