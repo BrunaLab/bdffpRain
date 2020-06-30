@@ -16,13 +16,16 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(here)
 library(conflicted)
+library(skimr)
+library(testthat)
+conflict_prefer("filter", "dplyr")
 ```
 
 *Last compiled: `r Sys.Date()`*
 
 # Purpose
 
-read in and wrangle manaus data to a data frame
+read in and wrangle Manaus data to a data frame
 
 # Load Data
 
@@ -46,4 +49,51 @@ unique(raw$Hora)
 1. split data by "Hora" (which doesn't seem to actually represent time)
 2. recombine so there are half as many rows
 3. translate column headings
-3. convert date to date
+3. convert date from character
+
+```{r}
+raw %>% filter(!is.na(TempMaxima) & !is.na(TempMinima))
+```
+```{r}
+skim(raw)
+```
+
+```{r}
+x <-
+  raw %>% 
+  select(-"\\") %>% 
+  filter(!is.na(Estacao)) %>% 
+  group_by(Hora) %>% 
+  group_split()
+
+skim(x[[1]])
+skim(x[[2]])
+df1 <- x[[1]] %>% select(-Hora, -Precipitacao)
+df2 <- x[[2]] %>% select(-Hora, -Insolacao, -"Evaporacao Piche", -"Temp Comp Media", -"Umidade Relativa Media", -"Velocidade do Vento Media")
+
+joined <- full_join(df1, df2, by = c("Estacao", "Data")) 
+
+temp_min_check <- 
+  joined %>% 
+  filter(!is.na(TempMinima.x) & !is.na(TempMinima.y))
+with(temp_min_check, compare(TempMinima.x, TempMinima.y))
+
+temp_max_check <-
+  joined %>% 
+  filter(!is.na(TempMaxima.x) & !is.na(TempMaxima.y))
+with(temp_max_check, compare(TempMaxima.x, TempMaxima.y))
+```
+
+Weird that there are occasional mismatches when data is duplicated for both values of `Hora`.  For now I'll average them.
+
+```{r}
+mean(joined$TempMaxima.x, joined$TempMaxima.y, trim = 0, na.rm = TRUE)
+all <-
+  joined %>% 
+  mutate(TempMaxima = mean(TempMaxima.x, TempMaxima.y, trim = 0, na.rm = TRUE),
+         TempMinima = mean(TempMinima.x, TempMinima.y, trim = 0, na.rm = TRUE)) %>% 
+  select(-ends_with(c(".x", ".y")))
+all
+```
+
+Next: translate column headings, convert date to date format.
