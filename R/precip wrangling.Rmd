@@ -1,0 +1,243 @@
+---
+title: "Wrangling Precipitation Data"
+author: "Eric R. Scott"
+date: "2020-06-24"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(conflicted)
+library(readxl)
+library(lubridate)
+library(janitor)
+library(hms)
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
+```
+
+*Last compiled: `r Sys.Date()`*
+
+# Purpose
+
+Reading and wrangling precip data
+
+# Reading and parsing data
+
+The HORA column is sometimes formatted as text and sometimes as time.  Read in both ways and join.
+
+```{r data, echo=TRUE}
+sites <- list.files(here("data_raw", "rain"))
+names(sites) <- str_remove(sites, "\\..+$")
+
+all_raw <- map_df(sites, ~{
+  site <- .x
+  sheets <- excel_sheets(here("data_raw", "rain", site))
+  sheets <- sheets[str_detect(sheets, "\\d{4}")]
+
+  site_raw <-
+    map_df(sheets, ~ read_excel(
+      here("data_raw", "rain", site),
+      sheet = .x,
+      range = cell_limits(c(3,1), c(NA, 6)),
+      col_types = c("date", "numeric", "text", "numeric", "text", "text")
+    ))
+
+time_as_date <-
+  map_df(sheets, ~ suppressWarnings(read_excel(
+    here("data_raw", "rain", site),
+    sheet = .x,
+    range = cell_limits(c(3,1), c(NA, 6)),
+    col_types = c("date", "numeric", "text", "numeric", "date", "text")
+  )))
+
+site_raw <- site_raw %>% add_column(time_as_date = time_as_date$HORA)
+},
+.id = "site")
+sample_n(all_raw, 7)
+```
+
+## Data Dictionary
+
+There are 8 sites, each with a .xls spreadsheet with multiple tabs.  Each tab contains data from 3 years and the last two tabs have some aggregated data done in Excel.
+
+- `DATA`: Date
+- `CHUVA`: Rainfall in mm (?)
+- `OBSERVADOR`: the name of the person who recorded the data
+- `DIA`: day of year
+- `HORA`: time of collection in 24-hr time  (sometimes as text, sometimes as time)
+- `COMENTARIO`: notes.  For example, whether the data was aggregated over previous days because no one was around to check the gauge.
+
+
+
+# Cleaning
+
+## Basics
+
+- Remove missing rows
+- Make column headings lowercase
+- combine columns that are just typos (comentario and commentario)
+
+```{r}
+all <-
+  all_raw %>% 
+  clean_names() %>% 
+  filter(!is.na(data)) %>%
+  mutate(comentario = ifelse(is.na(comentario), commentario, comentario),
+         data = as_date(data)) %>% 
+  select(-commentario)
+all
+```
+
+
+## Quality Control
+
+### Check that there are no missing dates
+
+This shows any problems with dates by checking the data against a sequence from earliest to latest date by day.
+
+- the missing dates in 41dia and COLOSSO are typos
+
+```{r}
+x <- all %>% 
+  group_by(site) %>% 
+  summarize(start = min(data),
+            end = max(data))
+out <- list()
+for (i in 1:nrow(x)) {
+  out[[i]] <- tibble(date = seq(x$start[i], x$end[i], by = "days"))
+}
+names(out) <- x$site
+tester <- bind_rows(out, .id = "site")
+
+missing_dates <- anti_join(tester, all, by = c("site" = "site", "date" = "data")) 
+
+missing_dates %>% 
+  group_by(site) %>% 
+  summarize(number_missing = n(),
+            min = min(date),
+            max = max(date))
+
+# missing_dates %>% filter(site %in% c("41dia", "COLOSSO"))
+```
+
+- Check that `DIA` matches day of year calculated from date.
+
+```{r}
+all %>% 
+  mutate(doy = yday(data)) %>% 
+  filter(dia != doy) %>% 
+  group_by(site) %>% 
+  summarize(n = n(),
+            start = min(data),
+            end = max(data))
+
+# all %>% 
+#   mutate(doy = yday(data)) %>% 
+#   filter(dia != doy) %>% group_by(site) %>% group_split()
+```
+A few are (probably) typos,  CABO, DIMONA, and GAVIAO are off by one day for large sections, and I don't know what is going on in PORTO.  This column should be trashed and replaced by `yday(date)`.
+
+```{r}
+all <-
+  all %>% 
+  mutate(dia = yday(data))
+```
+
+
+### Check times
+
+For the HORA column in Excel, sometimes the entry is character and sometimes it is a time.  When `read_excel` uses "text", then the character entries read in correctly, but the time entries read in as a weird decimal number.  When `read_excel()` uses "date", then the character entries read in as `<NA>` and the time entries read in as the correct time, but on the date 1899-12-31. There are also some text entries of time that include notes, for example, "7:00    chuva noite<0,1", or are entirely notes, e.g. "nao foi feita observ". 
+
+1. Extract notes and times separately from the `hora` column.
+2. Convert the `hora` column to time (as HH:MM)
+3. Extract any notes written in the time column and merge with other notes.
+
+
+```{r}
+all_2 <-
+  all %>% 
+  mutate(time_notes = str_remove(hora, "\\d{1,2}:\\d{2}"), #everything except times
+         hora = str_replace(hora, "(?<=\\d{1,2});(?=\\d{2})", ":"), #fix semi-colon typos
+         time_from_text = as_datetime(parse_hm(str_extract(hora, "\\d{1,2}:\\d{2}")))) %>% #convert to time
+  mutate(time_notes = ifelse(!is.na(time_as_date), NA, time_notes), #get rid of notes that shouldn't be there
+         time_notes = na_if(time_notes, "")) %>% 
+  #merge two dates and format as HH:MM
+  mutate(time = as_datetime(ifelse(!is.na(time_as_date), time_as_date, time_from_text)),
+         time = format(time, "%R"))
+```
+
+Check that you got them all by comparing original data read in both ways to new time column and look for NAs.
+
+```{r}
+all_2 %>% 
+  filter(!is.na(hora) & is.na(time))
+```
+
+**manually fix these errors??**
+
+### Consolidate comments
+
+```{r}
+all_clean <-
+  all_2 %>% 
+  unite(notes, c(time_notes, comentario), na.rm = TRUE, sep = "; ") %>% 
+  mutate(notes = na_if(notes, ""))
+all_clean
+```
+
+### Translate
+
+Translate column names to English
+
+```{r}
+all_clean2 <-
+  all_clean %>% 
+  select(site, date = data, doy = dia, time, observer = observador, precip = chuva, notes)
+```
+```{r}
+all_clean2 %>% skimr::skim()
+unique(all_clean2$notes)
+```
+
+# Write to file
+
+```{r}
+write_csv(all_clean2, here("data_cleaned", "daily_precip.csv"))
+```
+
+
+# Check / mark accumulated data
+
+After no one uses a site for a while, the next observation is accumulated.  Sometimes it is marked as such in the comments, but not always.  Other times, the site has maybe not been used for over a month and the next observation doesn't seem like it is accumulated.  I'm not sure the best way to deal with this right now.
+
+In some cases, the note "nao foi feita observ" (no observation was made) notes that a value is **not** accumulated (I think?), but this doesn't seem to be consistent.
+
+```{r}
+all_clean3 <-
+  all_clean2 %>% 
+  group_by(site) %>% 
+  #remove leading NA's first.
+  filter(!cumall(is.na(precip))) %>% 
+  #anything observation preceded by an NA note as "Accumulated"
+  mutate(accumulated = ifelse(is.na(lag(precip, default = 1)) & !is.na(precip), "accumulated", NA)) %>%
+  #remove missing observations
+  filter(!is.na(precip))
+
+# E.g. at this site there are long stretches of NAs followed by low precip values.
+# all_clean2 %>% 
+#   filter(site == "COLOSSO") %>%
+#   View()
+```
+
+
+
+

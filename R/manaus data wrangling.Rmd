@@ -1,0 +1,149 @@
+---
+title: "Wrangling Manaus Data"
+author: "Eric R. Scott"
+date: "2020-06-29"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(conflicted)
+library(skimr)
+library(testthat)
+library(lubridate)
+conflict_prefer("filter", "dplyr")
+```
+
+*Last compiled: `r Sys.Date()`*
+
+# Purpose
+
+read in and wrangle Manaus data to a data frame
+
+# Load Data
+
+```{r data, echo=TRUE}
+raw_text <- read_lines(here("data_raw", "MAO_climdata_1985-2019.rtf"))
+
+raw <- read_delim(raw_text[26:length(raw_text)], delim = ";")
+unique(raw$Hora)
+```
+
+## Data Dictionary
+
+`Dataframe1`: My data
+
+- `col1`: A variable
+- `col2`: Another variable
+
+# Wrangling
+
+1. get rid of `\` column and last couple of rows that didn't read correctly
+2. split data by "Hora" (which doesn't seem to actually represent time)
+3. recombine so there are half as many rows
+
+Weirdly, there are a few days where both minimum and maximum temperature are recorded for the same time, sometimes twice in one day.
+
+```{r}
+raw %>% filter(!is.na(TempMaxima) & !is.na(TempMinima))
+```
+```{r}
+skim(raw)
+```
+
+Let's clean it up:
+
+```{r}
+x <-
+  raw %>% 
+  select(-"\\") %>% 
+  filter(!is.na(Estacao)) %>% 
+  group_by(Hora) %>% 
+  group_split()
+
+# skim(x[[1]])
+# skim(x[[2]])
+df1 <- x[[1]] %>% select(-Hora, -Precipitacao)
+df2 <- x[[2]] %>% select(-Hora, -Insolacao, -"Evaporacao Piche", -"Temp Comp Media", -"Umidade Relativa Media", -"Velocidade do Vento Media")
+
+joined <- full_join(df1, df2, by = c("Estacao", "Data"))
+```
+
+
+Check dates where there were two entries for min or max temp
+
+```{r}
+temp_min_check <- 
+  joined %>% 
+  filter(!is.na(TempMinima.x) & !is.na(TempMinima.y))
+with(temp_min_check, compare(TempMinima.x, TempMinima.y))
+
+temp_max_check <-
+  joined %>% 
+  filter(!is.na(TempMaxima.x) & !is.na(TempMaxima.y))
+with(temp_max_check, compare(TempMaxima.x, TempMaxima.y))
+```
+
+Weird that there are occasional mismatches when data is duplicated for both values of `Hora`.  I'll average them unless I find out that there is some meaning to these duplicates.
+
+```{r}
+all <-
+  joined %>% 
+  mutate(TempMaxima = mean(TempMaxima.x, TempMaxima.y, trim = 0, na.rm = TRUE),
+         TempMinima = mean(TempMinima.x, TempMinima.y, trim = 0, na.rm = TRUE)) %>% 
+  select(-ends_with(c(".x", ".y")))
+all
+```
+
+# Translate
+
+- Estacao = station (can be removed because all data is from the same station)
+- Data = `date`
+- Insolacao = Insolação = sun exposure (hours?) = `sun_time`
+- Evaporacao Piche = evaporation by [Piche evaporimeter](https://link.springer.com/article/10.1007/BF00951248) = `piche_evap`
+- Temp Comp Media = mean compensated temperature (ºC) = `temp_mean`
+- Umidade Relativa Media = mean relative humidity = `rh`
+- Velocidade do Vento Media = mean wind speed (m/s ?) = `wind_speed`
+- Precipitacao = Precipitação = precipitation (mm) = `precip`
+- TempMaxima = `temp_max`
+- TempMinima = `temp_min`
+
+```{r}
+manaus_tidy <-
+  all %>%
+  select(
+    date = Data,
+    precip = Precipitacao,
+    temp_mean = `Temp Comp Media`,
+    temp_max = TempMaxima,
+    temp_min = TempMinima,
+    sun_time = Insolacao,
+    piche_evap = `Evaporacao Piche`,
+    rh = `Umidade Relativa Media`,
+    wind_speed = `Velocidade do Vento Media`
+  ) %>%
+  mutate(date = dmy(date))
+```
+
+```{r}
+skim(manaus_tidy)
+manaus_tidy %>% filter(is.na(precip))
+```
+
+Precip data missing for two random days.
+
+# Write to .csv
+
+```{r}
+write_csv(manaus_tidy, here("data_cleaned", "manaus_weather.csv"))
+```
+
+
