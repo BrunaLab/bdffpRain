@@ -91,7 +91,8 @@ all <-
   all_raw %>% 
   clean_names() %>% 
   filter(!is.na(data)) %>%
-  mutate(comentario = ifelse(is.na(comentario), commentario, comentario)) %>% 
+  mutate(comentario = ifelse(is.na(comentario), commentario, comentario),
+         data = as_date(data)) %>% 
   select(-commentario)
 all
 ```
@@ -139,9 +140,9 @@ all %>%
             start = min(data),
             end = max(data))
 
-all %>% 
-  mutate(doy = yday(data)) %>% 
-  # filter(dia != doy) %>% group_by(site) %>% group_split()
+# all %>% 
+#   mutate(doy = yday(data)) %>% 
+#   filter(dia != doy) %>% group_by(site) %>% group_split()
 ```
 A few are (probably) typos,  CABO, DIMONA, and GAVIAO are off by one day for large sections, and I don't know what is going on in PORTO.  This column should be trashed and replaced by `yday(date)`.
 
