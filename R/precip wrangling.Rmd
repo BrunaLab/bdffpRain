@@ -202,18 +202,25 @@ all_clean2 <-
   all_clean %>% 
   select(site, date = data, doy = dia, time, observer = observador, precip = chuva, notes)
 ```
+```{r}
+all_clean2 %>% skimr::skim()
+unique(all_clean2$notes)
+```
+
+# Write to file
+
+```{r}
+write_csv(all_clean2, here("data_cleaned", "daily_precip.csv"))
+```
 
 
-## Annotate and remove NAs
-
-### Check / mark accumulated data
+# Check / mark accumulated data
 
 After no one uses a site for a while, the next observation is accumulated.  Sometimes it is marked as such in the comments, but not always.  Other times, the site has maybe not been used for over a month and the next observation doesn't seem like it is accumulated.  I'm not sure the best way to deal with this right now.
 
 In some cases, the note "nao foi feita observ" (no observation was made) notes that a value is **not** accumulated (I think?), but this doesn't seem to be consistent.
 
 ```{r}
-unique(all_clean$site)
 all_clean3 <-
   all_clean2 %>% 
   group_by(site) %>% 
@@ -225,14 +232,11 @@ all_clean3 <-
   filter(!is.na(precip))
 
 # E.g. at this site there are long stretches of NAs followed by low precip values.
-all_clean2 %>% 
-  filter(site == "COLOSSO") %>%
-  View()
+# all_clean2 %>% 
+#   filter(site == "COLOSSO") %>%
+#   View()
 ```
 
 
-```{r}
-write_csv(all_clean2, here("data_cleaned", "daily precip.csv"))
-```
 
 
