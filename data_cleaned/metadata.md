@@ -45,7 +45,7 @@ Precipitation data from the Biological Dynamics of Forest Fragments Project.  Da
 - `site`: site name
 - `date`: date in ISO format
 - `doy`: day of year
-- `time`: time in HH:MM:SS
+- `time`: time in HH:MM (24hr time)
 - `observer`: name of observer who recorded the data
 - `precip`: precipitation in mm
 - `notes`: consolidated notes from notes column in original data as well as text comments made in the time column in the original data.

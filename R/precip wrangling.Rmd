@@ -158,20 +158,21 @@ all <-
 For the HORA column in Excel, sometimes the entry is character and sometimes it is a time.  When `read_excel` uses "text", then the character entries read in correctly, but the time entries read in as a weird decimal number.  When `read_excel()` uses "date", then the character entries read in as `<NA>` and the time entries read in as the correct time, but on the date 1899-12-31. There are also some text entries of time that include notes, for example, "7:00    chuva noite<0,1", or are entirely notes, e.g. "nao foi feita observ". 
 
 1. Extract notes and times separately from the `hora` column.
-2. Convert the `hora` column to time
-3. Extract any notes writen in the time column and merge with other notes.
+2. Convert the `hora` column to time (as HH:MM)
+3. Extract any notes written in the time column and merge with other notes.
 
 
 ```{r}
-all_2 <- 
+all_2 <-
   all %>% 
   mutate(time_notes = str_remove(hora, "\\d{1,2}:\\d{2}"), #everything except times
          hora = str_replace(hora, "(?<=\\d{1,2});(?=\\d{2})", ":"), #fix semi-colon typos
-         time = parse_hm(str_extract(hora, "\\d{1,2}:\\d{2}"))) %>% #convert to time
+         time_from_text = as_datetime(parse_hm(str_extract(hora, "\\d{1,2}:\\d{2}")))) %>% #convert to time
   mutate(time_notes = ifelse(!is.na(time_as_date), NA, time_notes), #get rid of notes that shouldn't be there
          time_notes = na_if(time_notes, "")) %>% 
-  mutate(time_as_date = as_hms(time_as_date)) %>% #merge two times
-  mutate(time = as_hms(ifelse(!is.na(time_as_date), time_as_date, time)))
+  #merge two dates and format as HH:MM
+  mutate(time = as_datetime(ifelse(!is.na(time_as_date), time_as_date, time_from_text)),
+         time = format(time, "%R"))
 ```
 
 Check that you got them all by comparing original data read in both ways to new time column and look for NAs.
