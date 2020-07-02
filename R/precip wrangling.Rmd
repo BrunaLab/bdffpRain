@@ -20,6 +20,7 @@ library(readxl)
 library(lubridate)
 library(janitor)
 library(hms)
+library(tsibble)
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 ```
@@ -208,10 +209,112 @@ all_clean2 %>% skimr::skim()
 unique(all_clean2$notes)
 ```
 
+
+# Check for problems
+
+add rownumbers to facilitate manual data fixing
+
+```{r}
+all_clean2 <- all_clean2 %>% add_rownames()
+```
+
+## Problems in precip
+
+The value for DIMONA 2005-02-22 is not correct.  It got converted to a date by Excel.  Dr. Bruna did some investigating and the correct value is 53
+
+```{r}
+all_clean2 %>% filter(precip < 0)
+all_clean2 %>% filter(precip > 500)
+#typo in Dimona
+all_clean2 <- all_clean2 %>% mutate(precip = replace(precip, rowname == 27449, 53))
+```
+## Problems with dates
+
+Check if dates are in order and if any are missing:
+
+```{r}
+#Dates not in order
+all_clean2 %>% 
+  add_rownames() %>% 
+  group_by(site) %>% 
+  filter(date != lag(date) + 1 & !is.na(lag(date)))
+```
+
+### Just implicit missing data:
+
+```{r, eval=FALSE}
+all_clean2 %>%
+  slice(6512:6515)
+
+all_clean2 %>% 
+  slice(29980:29984)
+
+all_clean2 %>% 
+  slice(30073:30078)
+
+all_clean2 %>% 
+  slice(30469:30473)
+
+all_clean2 %>% 
+  slice(36710:36715)
+
+all_clean2 %>% 
+  slice(38200:38206)
+```
+
+### Typos That need fixing
+
+Typos in date
+
+```{r}
+all_clean2 %>% 
+  slice(12572:12576)
+
+all_clean2 %>% 
+  slice(32249:32253)
+
+all_clean2 %>% 
+  slice(39059:39066)
+
+all_clean2 %>% 
+  slice(38617:38622)
+
+typos <- c("12573" = ymd("1988-10-01"),
+           "32251" = ymd("1992-10-14"),
+           "39061" = ymd("1994-01-05"),
+           "39063" = ymd("1994-01-07"),
+           "38619" = ymd("1992-10-20"))
+
+all_clean2 <- 
+  all_clean2 %>% 
+  mutate(date = replace(date, rowname %in% as.numeric(names(typos)), typos))
+```
+
+Duplicated and empty dates
+
+```{r}
+all_clean2 %>% 
+  slice(10530:10536)
+#duplicated dec 1
+
+all_clean2 <- all_clean2 %>% filter(rowname != 10532)
+```
+
+## Duplicated dates
+
+These must be dealt with somehow
+
+```{r}
+duplicates(all_clean2, key = site, index = date)
+```
+
+
 # Write to file
 
 ```{r}
-write_csv(all_clean2, here("data_cleaned", "daily_precip.csv"))
+#remove rowname
+out <- all_clean2 %>% select(-rowname)
+write_csv(out, here("data_cleaned", "daily_precip.csv"))
 ```
 
 
