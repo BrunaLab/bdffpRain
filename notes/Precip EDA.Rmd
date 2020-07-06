@@ -1,0 +1,152 @@
+---
+title: "Precipitation Data EDA"
+author: "Eric R. Scott"
+date: "2020-07-02"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(skimr)
+library(here)
+library(conflicted)
+library(plotly)
+library(lubridate)
+library(tsibble)
+conflict_prefer("filter", "dplyr") 
+conflict_prefer("lag", "dplyr")
+```
+
+*Last compiled: `r Sys.Date()`*
+
+# Purpose
+Identify problems in the data.  Figure out what to do with missing values and multi-day accumulated values. Explore consistency of precip data across sites at BDFFP at different levels of aggregation (daily, monthly, yearly). 
+
+# Load Data
+
+```{r data, echo=TRUE}
+bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"), col_types = cols(site = col_character()))
+skim(bdffp)
+```
+
+# Try as a tsibble
+
+Going to try converting to a tsibble and using the tsibble package and other tidyverts packages for some analyses.
+
+```{r}
+bdffp_ts <- as_tsibble(bdffp, key = site, index = date)
+```
+
+## Visualize Gaps
+
+This method only shows the *implicit* gaps (dates that are just not there in the spreadsheet)
+
+```{r}
+bdffp_ts %>% 
+  count_gaps(.full = TRUE) %>% 
+  ggplot(aes(y = site)) +
+  geom_linerange(aes(xmin = .from, xmax = .to)) +
+  geom_point(aes(x = .from)) +
+  geom_point(aes(x = .to)) +
+  labs(x = "Date", y = "Site", title = "Implicit gaps in data")
+```
+
+Here's one way to visualize **all** the gaps (includes dates entered into spreadsheet, but with no observations made)
+
+```{r}
+bdffp_ts %>% 
+  filter(!is.na(precip)) %>% 
+  count_gaps(.full = FALSE) %>% 
+  ggplot(aes(y = site)) +
+  geom_linerange(aes(xmin = .from, xmax = .to)) +
+  # geom_point(aes(x = .from)) +
+  # geom_point(aes(x = .to)) +
+  labs(x = "Date", y = "Site", title = "All gaps in data")
+```
+
+But that's sort of useless.  
+
+
+# Deal with accumulations
+
+Mark possible untagged accumulations as any un-flagged precip value after one or more NAs.
+
+```{r}
+bdffp <- bdffp %>% 
+  mutate(gaptype = case_when(
+    flag == "accumulated" ~ "accumulated",
+    !is.na(precip) & is.na(lag(precip)) ~ "untagged",
+    !is.na(precip) & !is.na(lag(precip)) ~ "ordinary"
+  ))
+
+```
+
+## Compare tagged, untagged, and no gap
+
+How much rain after each type of gap?
+
+```{r}
+bdffp %>% 
+  group_by(site) %>% 
+  filter(!is.na(precip)) %>% 
+  mutate(gaptype = fct_relevel(gaptype, "ordinary", "untagged", "accumulated")) %>% 
+  ggplot(aes(precip)) +
+  geom_histogram(aes(y = after_stat(ncount))) +
+  facet_wrap("gaptype", ncol = 1) +
+  labs(x = "Precipitation (mm)", y = "Proportion of observations", caption = '"ordinary" = no preceding gap\n "untagged" = preceding gap w/ no note\n "accumulated" = preceding gap w/ note that obs is accumulated precip')
+```
+I think at least some of the untagged values following gaps are probably accumulations, but the distributions are similar looking enough that I don't think it would be worth trying to establish a cutoff or something.
+
+```{r}
+bdffp %>% filter(gaptype == "untagged" & !is.na(notes))
+bdffp %>% count(gaptype)
+bdffp %>% filter(gaptype == "untagged", precip > 0) %>% count()
+```
+3360 potentially untagged accumulations
+
+## Length of gaps
+
+```{r}
+# calculates number of NAs before an observation.  Excludes leading NAs at each site.
+gaps <- 
+  bdffp %>% 
+  group_by(site) %>% 
+  # mutate(row = row_number()) %>% #probably not necessary
+  mutate(cumna = cumsum(is.na(precip))) %>% 
+  filter(!is.na(precip)) %>% 
+  mutate(gap_len = cumna - lag(cumna)) %>% 
+  mutate(gap_len = na_if(gap_len, 0)) %>% 
+  select(-cumna)
+bdffp <- full_join(bdffp, gaps)  
+```
+
+```{r}
+gap_summary <- 
+  bdffp %>% 
+  group_by(gaptype) %>% 
+  summarize(mean_gap = mean(gap_len, na.rm = TRUE),
+            median_gap = median(gap_len, na.rm = TRUE),
+            max_gap = max(gap_len, na.rm = TRUE)) %>% 
+  filter(gaptype %in% c("accumulated", "untagged"))
+gap_summary
+bdffp %>% filter(gap_len > 30 & flag == "accumulated")
+```
+
+Plotting gap length vs precip after gap.  (is this helpful?)
+
+```{r}
+bdffp %>% 
+  filter(gaptype %in% c("accumulated", "untagged")) %>% 
+  filter(gap_len < 300) %>% 
+  ggplot(aes(x = gap_len, y = precip, color = gaptype)) +
+  geom_point()
+```
+
+
