@@ -20,6 +20,7 @@ library(conflicted)
 library(plotly)
 library(lubridate)
 library(tsibble)
+library(corrr)
 conflict_prefer("filter", "dplyr") 
 conflict_prefer("lag", "dplyr")
 ```
@@ -149,4 +150,73 @@ bdffp %>%
   geom_point()
 ```
 
+## Are NA's zeroes?
 
+How are NAs distributed over time?  Are they more common in the dry season?  Then they might actually sometimes be zeroes (uh oh).
+
+```{r}
+bdffp %>% 
+  mutate(month = month(date, label = TRUE)) %>% 
+  group_by(site, month) %>%
+  summarize(prop_NA = sum(is.na(precip))/n()) %>% 
+  ggplot(aes(x = month, y = prop_NA)) + geom_col() +
+  labs(x = "Month", y = "Proportion of missing values") +
+  facet_wrap(~site) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# ggsave("distribution of NAs.png")
+```
+
+NAs are more common the the dry season in at least some sites indicating that some of those NAs are probably actually zeroes.
+
+
+# Compare with Manaus Data
+
+I'll remove any tagged or possible untagged accumulations, then compare remaining data with manaus...somehow.
+
+```{r}
+bdffp_ts <- 
+  as_tsibble(bdffp, key = site, index = date) %>%
+  fill_gaps()
+bdffp_ts
+```
+
+```{r}
+manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
+# manaus <- as_tsibble(manaus, index = date)
+manaus <- manaus %>% filter(between(date, min(bdffp$date), max(bdffp$date)))
+```
+
+```{r}
+ggplot(manaus, aes(x = date, y = precip)) + geom_line() + facet_wrap(~year(date), scales = "free_x")
+```
+
+```{r}
+ggplot(bdffp, aes(x = date, y = precip, color = site)) + geom_line() + facet_wrap(~year(date), scales = "free_x")
+```
+
+```{r}
+combined <-
+  manaus %>%
+  select(date, precip) %>% 
+  add_column(site = "MANAUS") %>% 
+  bind_rows(bdffp) %>% 
+  # filter(is.na(flag)) %>% 
+  filter(!gaptype %in% c("untagged", "accumulated")) %>% 
+  as_tsibble(key = site, index = date) %>% 
+  fill_gaps()
+  
+ggplot(combined %>% filter(year(date) == 2000), aes(x = date, y = precip, color = site)) +
+  geom_line() +
+  facet_wrap(~month(date), scales = "free_x")
+```
+```{r}
+comb_wide <- combined %>% 
+  select(date, site, precip) %>% 
+  pivot_wider(date, names_from = site, values_from = precip) %>% 
+  ungroup() %>% as.data.frame()
+correlate(comb_wide %>% select(-date)) %>%
+  shave() %>% 
+  fashion()
+```
+
+Low correlations with Manaus station.
