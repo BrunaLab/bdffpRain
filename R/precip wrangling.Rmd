@@ -308,6 +308,35 @@ These must be dealt with somehow
 duplicates(all_clean2, key = site, index = date)
 ```
 
+# Flags and notes
+
+I think it would be useful to create a `flag` column using the information in the notes.  I should research if there are some standards for how to do this already (like, what letters to use).  There are also some notes that relate to data directly possibly.
+
+## Creating flags
+
+Flags:
+
+- `A`: tagged accumulation
+- `E`: data error
+- `T`: trace precipitation
+
+```{r}
+notes <- all_clean2$notes %>% unique()
+notes
+```
+```{r}
+all_clean2 <- 
+  all_clean2 %>% 
+  mutate(flag = case_when(
+    str_detect(notes, "(A|a|Á)c{1,2}umu") ~ "accumulated",
+    str_detect(notes, "(P|p)luviometro no ch") ~ "error",
+    str_detect(notes, "errada") ~ "error",
+    str_detect(notes, "chuva noite<0,1") ~ "trace",
+    TRUE ~ NA_character_
+  ))
+```
+
+
 ## Explicit NAs entered as 0
 
 Some observations have 0 entered for precip, but "nao foi feita observ" (no observation made) entered in notes.
@@ -327,31 +356,3 @@ all_clean2 <-
 out <- all_clean2 %>% select(-rowname)
 write_csv(out, here("data_cleaned", "daily_precip.csv"))
 ```
-
-
-# Check / mark accumulated data
-
-After no one uses a site for a while, the next observation is accumulated.  Sometimes it is marked as such in the comments, but not always.  Other times, the site has maybe not been used for over a month and the next observation doesn't seem like it is accumulated.  I'm not sure the best way to deal with this right now.
-
-In some cases, the note "nao foi feita observ" (no observation was made) notes that a value is **not** accumulated (I think?), but this doesn't seem to be consistent.
-
-```{r}
-all_clean3 <-
-  all_clean2 %>% 
-  group_by(site) %>% 
-  #remove leading NA's first.
-  filter(!cumall(is.na(precip))) %>% 
-  #anything observation preceded by an NA note as "Accumulated"
-  mutate(accumulated = ifelse(is.na(lag(precip, default = 1)) & !is.na(precip), "accumulated", NA)) %>%
-  #remove missing observations
-  filter(!is.na(precip))
-
-# E.g. at this site there are long stretches of NAs followed by low precip values.
-# all_clean2 %>% 
-#   filter(site == "COLOSSO") %>%
-#   View()
-```
-
-
-
-
