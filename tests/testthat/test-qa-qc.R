@@ -1,6 +1,7 @@
 library(readr)
 library(tsibble)
 library(lubridate)
+library(here)
 
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"), col_types = cols(site = col_character()))
 
