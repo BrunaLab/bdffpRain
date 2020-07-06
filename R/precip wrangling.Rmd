@@ -308,6 +308,17 @@ These must be dealt with somehow
 duplicates(all_clean2, key = site, index = date)
 ```
 
+## Explicit NAs entered as 0
+
+Some observations have 0 entered for precip, but "nao foi feita observ" (no observation made) entered in notes.
+
+```{r}
+# all_clean2 %>% filter(notes == "nao foi feita observ")
+all_clean2 <-
+  all_clean2 %>% 
+  mutate(precip = ifelse(str_detect(notes, "nao foi feita observ") & precip == 0, NA, precip)) 
+```
+
 
 # Write to file
 
