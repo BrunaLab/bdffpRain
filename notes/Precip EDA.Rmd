@@ -110,7 +110,7 @@ bdffp %>% filter(gaptype == "untagged" & !is.na(notes))
 bdffp %>% count(gaptype)
 bdffp %>% filter(gaptype == "untagged", precip > 0) %>% count()
 ```
-3360 potentially untagged accumulations
+1161 potentially untagged accumulations
 
 ## Length of gaps
 
@@ -186,13 +186,6 @@ manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
 manaus <- manaus %>% filter(between(date, min(bdffp$date), max(bdffp$date)))
 ```
 
-```{r}
-ggplot(manaus, aes(x = date, y = precip)) + geom_line() + facet_wrap(~year(date), scales = "free_x")
-```
-
-```{r}
-ggplot(bdffp, aes(x = date, y = precip, color = site)) + geom_line() + facet_wrap(~year(date), scales = "free_x")
-```
 
 ```{r}
 combined <-
@@ -205,7 +198,7 @@ combined <-
   as_tsibble(key = site, index = date) %>% 
   fill_gaps()
   
-ggplot(combined %>% filter(year(date) == 2000), aes(x = date, y = precip, color = site)) +
+ggplot(combined %>% filter(year(date) == 1999), aes(x = date, y = precip, color = site)) +
   geom_line() +
   facet_wrap(~month(date), scales = "free_x")
 ```
@@ -217,6 +210,8 @@ comb_wide <- combined %>%
 correlate(comb_wide %>% select(-date)) %>%
   shave() %>% 
   fashion()
+
+comb_wide %>% filter(between(date, ymd("1999-07-01"), ymd("1999-08-01")))
 ```
 
 Low correlations with Manaus station.

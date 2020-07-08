@@ -91,11 +91,17 @@ There are 8 sites, each with a .xls spreadsheet with multiple tabs.  Each tab co
 all <-
   all_raw %>% 
   clean_names() %>% 
-  filter(!is.na(data)) %>%
   mutate(comentario = ifelse(is.na(comentario), commentario, comentario),
          data = as_date(data)) %>% 
   select(-commentario)
 all
+
+#fix typo in date column
+all %>% add_rownames() %>% filter(is.na(data) & !is.na(chuva))
+all$data[6646] <- ymd("2000-03-31")
+
+#remove missing rows
+all <- all %>% filter(!is.na(data))
 ```
 
 
@@ -105,7 +111,7 @@ all
 
 This shows any problems with dates by checking the data against a sequence from earliest to latest date by day.
 
-- the missing dates in 41dia and COLOSSO are typos
+- the missing dates in COLOSSO are typos
 
 ```{r}
 x <- all %>% 
@@ -135,15 +141,12 @@ missing_dates %>%
 ```{r}
 all %>% 
   mutate(doy = yday(data)) %>% 
+  #show only rows where the calculated DOY doesn't match the entered DOY
   filter(dia != doy) %>% 
   group_by(site) %>% 
   summarize(n = n(),
             start = min(data),
             end = max(data))
-
-# all %>% 
-#   mutate(doy = yday(data)) %>% 
-#   filter(dia != doy) %>% group_by(site) %>% group_split()
 ```
 A few are (probably) typos,  CABO, DIMONA, and GAVIAO are off by one day for large sections, and I don't know what is going on in PORTO.  This column should be trashed and replaced by `yday(date)`.
 
@@ -226,7 +229,7 @@ The value for DIMONA 2005-02-22 is not correct.  It got converted to a date by E
 all_clean2 %>% filter(precip < 0)
 all_clean2 %>% filter(precip > 500)
 #typo in Dimona
-all_clean2 <- all_clean2 %>% mutate(precip = replace(precip, rowname == 27449, 53))
+all_clean2 <- all_clean2 %>% mutate(precip = replace(precip, rowname == 27450, 53))
 ```
 ## Problems with dates
 
@@ -279,11 +282,11 @@ all_clean2 %>%
 all_clean2 %>% 
   slice(38617:38622)
 
-typos <- c("12573" = ymd("1988-10-01"),
-           "32251" = ymd("1992-10-14"),
-           "39061" = ymd("1994-01-05"),
-           "39063" = ymd("1994-01-07"),
-           "38619" = ymd("1992-10-20"))
+typos <- c("12574" = ymd("1988-10-01"),
+           "32252" = ymd("1992-10-14"),
+           "39062" = ymd("1994-01-05"),
+           "39064" = ymd("1994-01-07"),
+           "38620" = ymd("1992-10-20"))
 
 all_clean2 <- 
   all_clean2 %>% 
@@ -297,7 +300,7 @@ all_clean2 %>%
   slice(10530:10536)
 #duplicated dec 1
 
-all_clean2 <- all_clean2 %>% filter(rowname != 10532)
+all_clean2 <- all_clean2 %>% filter(rowname != 10533)
 ```
 
 ## Duplicated dates
@@ -345,7 +348,7 @@ Some observations have 0 entered for precip, but "nao foi feita observ" (no obse
 # all_clean2 %>% filter(notes == "nao foi feita observ")
 all_clean2 <-
   all_clean2 %>% 
-  mutate(precip = ifelse(str_detect(notes, "nao foi feita observ") & precip == 0, NA, precip)) 
+  mutate(precip = replace(precip, str_detect(notes, "nao foi feita observ"), NA))
 ```
 
 
