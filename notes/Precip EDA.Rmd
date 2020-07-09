@@ -103,7 +103,7 @@ bdffp %>%
   facet_wrap("gaptype", ncol = 1) +
   labs(x = "Precipitation (mm)", y = "Proportion of observations", caption = '"ordinary" = no preceding gap\n "untagged" = preceding gap w/ no note\n "accumulated" = preceding gap w/ note that obs is accumulated precip')
 ```
-I think at least some of the untagged values following gaps are probably accumulations, but the distributions are similar looking enough that I don't think it would be worth trying to establish a cutoff or something.
+I think at least some of the untagged values following gaps are probably accumulations, and some might be zeroes.  Either way, for aggregated data it's probably OK to sum at least for small-ish time gaps that aren't near month borders.
 
 ```{r}
 bdffp %>% filter(gaptype == "untagged" & !is.na(notes))
@@ -137,6 +137,7 @@ gap_summary <-
             max_gap = max(gap_len, na.rm = TRUE)) %>% 
   filter(gaptype %in% c("accumulated", "untagged"))
 gap_summary
+
 bdffp %>% filter(gap_len > 30 & flag == "accumulated")
 ```
 
@@ -163,7 +164,7 @@ bdffp %>%
   labs(x = "Month", y = "Proportion of missing values") +
   facet_wrap(~site) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
-# ggsave("distribution of NAs.png")
+ggsave("distribution of NAs.png")
 ```
 
 NAs are more common the the dry season in at least some sites indicating that some of those NAs are probably actually zeroes.

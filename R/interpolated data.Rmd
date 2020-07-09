@@ -11,6 +11,10 @@ output:
     number_sections: yes
 ---
 
+**TODO:**
+
+- are grid cells centered on lat-lon values?  If so, I probably need fewer grid cells.
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
@@ -64,6 +68,12 @@ https://www.rapidtables.com/convert/number/degrees-minutes-seconds-to-degrees.ht
 
 lat = -2.25º to -2.5º
 lon = -59.583º to -60.167º OR 300.417 to 299.833
+
+```{r}
+# or with sp package
+# sp::char2dms("02d30'S") %>% as.numeric()
+```
+
 
 ```{r}
 lat_min = -2.25

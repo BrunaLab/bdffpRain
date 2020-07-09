@@ -19,6 +19,7 @@ library(here)
 library(SPEI)
 library(tsibble) #for viewing timeseries output of SPEI better.
 library(MASS)
+
 select <- dplyr::select
 ```
 
@@ -44,28 +45,120 @@ The general idea of Standardized Precipitation Index is to fit a distribution to
 
 Most people seem to agree that either a Gamma distribution or a Pearson III distribution should be used to fit the data.  What seems really inconsistent is *what data*.  The original source (McKee et al. 1993) seems to suggest using a windowed average (3, 6, 12, or 24 months) and then standardizing precip using the past period.  Other sources seem to suggest the windowed average, but over *all years*.  Others seem to just use raw precip data (which seems wrong).
 
-# Load Data
+# Manaus
 
-I'll use the wichita dataset which has a column for year, month, and precip that I'll use.  This needs to be sorted by year and month, because the `spi()` function only uses the precip column.
+I'll use the Manaus dataset and aggregate monthly.  I'll convert to timeseries with the `tsibble` package.
 
 ```{r data, echo=TRUE}
-data(wichita)
-wichita
+manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
+manaus_ts <- manaus %>% as_tsibble(index = date)
+```
+There are two NAs in the data, which for now I will just ignore when I aggregate.
+```{r}
+which(is.na(manaus_ts$precip))
+```
+
+
+# Aggregate monthly
+
+```{r}
+manaus_mon <-
+  manaus_ts %>% 
+  index_by(year_month = yearmonth(date)) %>% 
+  summarize(precip = sum(precip, na.rm = TRUE))
 ```
 
 # Analysis with SPEI pacakge
 
+Calculate SPI with a 3-month window.
+
+Using defaults seems like the best idea.
+
 ```{r}
-spi(wichita$PRCP, 12) -> out
+spi(manaus_mon$precip, scale = 12) -> out
+
 out$fitted %>% as_tsibble()
 plot(out)
 ```
 
+I guess I can just ignore the index and add a column to the manaus data?
 ```{r}
-View(spi)
+manaus_spi <- manaus_mon %>% add_column(spi = as_tsibble(out$fitted)$value)
+```
+
+```{r}
+manaus_spi <-
+  manaus_spi %>% 
+  mutate(category = case_when(
+    spi <= -2.00 ~ "extreme",
+    spi <= -1.5 & spi > -2 ~ "severe",
+    spi <= -1 & spi > -1.5 ~ "moderate",
+    spi <= 0 & spi > -1 ~ "mild"
+  )) %>% 
+  mutate(category = fct_relevel(category, "mild", "moderate", "severe", "extreme"))
+
+ggplot(manaus_spi, aes(x = year_month, y = spi)) +
+  geom_line(aes(color = category, group = 1)) +
+  scale_x_yearmonth("Date") +
+  scale_y_continuous("SPI") +
+  scale_color_ordinal("Drought\ncategory", option = "C", na.value = "darkgrey", end = 0.9) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "SPI with 12 month window for Manaus station")
+```
+NICE!
+
+# GPCC data
+
+Now let's see if I can do the same thing for the gridded data
+
+```{r}
+gpcc <- read_csv(here("data_cleaned", "gpcc_mon_tot_0.5x0.5.csv"))
+gpcc_l <- gpcc %>% group_by(lat, lon) %>% group_split()
+```
+```{r}
+names(gpcc_l) <- map(gpcc_l, ~ as.character(paste(first(.x$lat), first(.x$lon))))
+gpcc_spi <-
+  map_df(gpcc_l, ~{
+  out <- spi(.x$precip, 12)
+  spi <- as_tsibble(out$fitted)
+  add_column(.x, spi = spi$value)
+}, .id = "gridcell")
+```
+
+# Visualize
+
+```{r}
+gpcc_spi <-
+  gpcc_spi %>% 
+  #categories from McKee et al.
+  mutate(category = case_when(
+    spi <= -2.00 ~ "extreme",
+    spi <= -1.5 & spi > -2 ~ "severe",
+    spi <= -1 & spi > -1.5 ~ "moderate",
+    spi <= 0 & spi > -1 ~ "mild"
+  )) %>% 
+  mutate(category = fct_relevel(category, "mild", "moderate", "severe", "extreme")) %>% 
+  mutate(lat_lab = sp::dd2dms(lat, NS = TRUE) %>% str_replace("d", "º"),
+         lon_lab = sp::dd2dms(lon-360) %>% str_replace("d", "º")) %>% 
+  mutate(lat_lab = fct_relevel(lat_lab, "2º15'S", "2º45'S"),
+         lon_lab = as_factor(lon_lab))
+
+ggplot(gpcc_spi, aes(x = date, y = spi)) +
+  geom_line(aes(color = category, group = 1)) +
+  facet_grid(lat_lab~lon_lab) +
+  scale_x_yearmonth("Date") +
+  scale_y_continuous("SPI") +
+  scale_color_ordinal("Drought\ncategory", option = "C", na.value = "darkgrey", end = 0.9) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "SPI with 12 month window for area encompasing BDFFP")
 ```
 
 
+
+
+# Notes from McKee et al
 
 ## Prepare data
 
@@ -131,30 +224,3 @@ spi_final <-
   mutate(spi = qnorm(precip_p))
 spi_final
 ```
-
-# Compare with spi package results
-
-Note, this almost *has* to be wrong since the example data set doesn't include 12 months of continuous data.  Not sure how the moving average could even be calculated according to McKee et al. 1993
-
-## spi package results:
-
-```{r}
-data(spi_data) 
-
-##write to file
-
-write.table(spi_data,file="spi.txt",quote=FALSE,row.names=TRUE)	  
-
-## Standard format with the output in the text format
-
-spi(3,"spi.txt",1963,2010)
-```
-
-## My results: 
-
-```{r}
-spi_final %>% select(month, year, spi) %>% 
-  pivot_wider(names_from = month, values_from = spi)
-```
-
-Relatively similar, but definitely different.  Also, neither are correct since the moving average is calculated with missing months.
