@@ -17,9 +17,10 @@ library(tidyverse)
 library(here)
 library(conflicted)
 conflict_prefer("filter", "dplyr")
-
+conflict_prefer("select", "dplyr")
 library(ncdf4)
 library(raster)
+library(lubridate)
 ```
 
 *Last compiled: `r Sys.Date()`*
@@ -65,19 +66,25 @@ lat = -2.25º to -2.5º
 lon = -59.583º to -60.167º OR 300.417 to 299.833
 
 ```{r}
-which.min(abs(lat - -2.5))
-which.min(abs(lon - (360-59.583)))
-lat[185:186]
-latmin <- 185
-latmax <- 186
+lat_min = -2.25
+lat_max = -2.5
+lon_min = -60.167
+lon_max = -59.583
 
-lon[600:602]
-lonmin <- 600
-lonmax <- 602
+
+lat_min_i <- which.min(abs(lat - lat_min))
+lat_max_i <- lat_min_i + 1
+lon_min_i <- which.min(abs(lon - (360 + lon_min)))
+lon_max_i <- which.min(abs(lon - (360 + lon_max))) + 1
+
+lon[lon_min_i:lon_max_i]
+
+lat[lat_min_i:lat_max_i]
+
 # one month
 precip <- ncvar_get(gpcc, "precip",
-                    start = c(lonmin, latmin, 1161), # c(lon, lat, time)
-                    count = c(lonmax - lonmin+1, latmax-latmin+1, 1)  # c(lon, lat, time)
+                    start = c(lon_min_i, lat_min_i, 1161), # c(lon, lat, time)
+                    count = c(lon_max_i - lon_min_i + 1, lat_max_i - lat_min_i + 1, 1)  # c(lon, lat, time)
                     ) 
 precip
 ```
@@ -91,12 +98,12 @@ Cool, now I want it over a specific time period
 BDFFP data runs from 1987-09-01 to 2012-12-31
 
 ```{r}
-tstart <- which(time == ymd("1987-09-01"))
-tend <- which(time == ymd("2013-02-01"))
+tstart_i <- which(time == ymd("1987-09-01"))
+tend_i <- which(time == ymd("2013-02-01"))
 
 precip <- ncvar_get(gpcc, "precip",
-                    start = c(lonmin, latmin, tstart), # c(lon, lat, time)
-                    count = c(lonmax - lonmin+1, latmax - latmin+1, tend - tstart)  # c(lon, lat, time)
+                    start = c(lon_min_i, lat_min_i, tstart_i), # c(lon, lat, time)
+                    count = c(lon_max_i - lon_min_i+1, lat_max_i - lat_min_i+1, tend_i - tstart_i+1)  # c(lon, lat, time)
                     ) 
 precip[,,1]
 ```
@@ -105,6 +112,28 @@ precip[lon, lat, time]
 # Convert into tidy format
 
 Need to smoosh this array into a tidy dataframe with columns `lat`, `lon`, `date`, and `precip`.  I think.
+
+
+```{r}
+dimnames(precip) <- list(lon[lon_min_i:lon_max_i],
+                         lat[lat_min_i:lat_max_i], 
+                         as.character(time[tstart_i:tend_i]))
+
+out <- 
+  precip %>%
+  as_tibble(rownames = "lon") %>% 
+  pivot_longer(-lon, names_to = "lat", values_to = "precip") %>% 
+  separate(lat, into = c("lat", "date"), sep = "\\.(?=\\d{4}-\\d{2}-\\d{2}$)") %>% 
+  mutate(lon = as.numeric(lon), lat = as.numeric(lat), date = ymd(date)) %>% 
+  select(date, lat, lon, precip) %>% 
+  arrange(date)
+out
+```
+
+```{r}
+write_csv(out, here("data_cleaned", "gpcc_mon_tot_0.5x0.5.csv"))
+```
+
 
 ```{r}
 nc_close(gpcc)
