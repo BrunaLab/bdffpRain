@@ -104,6 +104,26 @@ all$data[6646] <- ymd("2000-03-31")
 all <- all %>% filter(!is.na(data))
 ```
 
+## Site names
+- Change to lowercase
+- floresta -> florestaL (missing L at end)
+- 41dia -> km41
+- Cabo -> Cabo Frio
+- Porto -> Porto Alegre
+- 37 -> km37
+
+```{r}
+all <-
+  all %>% 
+  mutate(site = str_to_lower(site)) %>% 
+  mutate(site = fct_recode(site,
+                           florestal = "floresta",
+                           km41 = "41dia",
+                           "cabo frio" = "cabo",
+                           "porto alegre" = "porto",
+                           km37 = "37"))
+```
+
 
 ## Quality Control
 
@@ -133,7 +153,7 @@ missing_dates %>%
             min = min(date),
             max = max(date))
 
-# missing_dates %>% filter(site %in% c("41dia", "COLOSSO"))
+# missing_dates %>% filter(site %in% c("41dia", "colosso"))
 ```
 
 - Check that `DIA` matches day of year calculated from date.
