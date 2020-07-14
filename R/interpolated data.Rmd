@@ -13,7 +13,8 @@ output:
 
 **TODO:**
 
-- are grid cells centered on lat-lon values?  If so, I probably need fewer grid cells.
+- are grid cells centered on lat-lon values?  If so, I probably need fewer grid cells. ( I think i only need two cells:  2º15'S 60º15'W for Dimona, and 2º15'S 59º45'W for all other sites)
+- Explore usefulness of statistical downscaling of gridded data using the [rainfarmr](https://github.com/jhardenberg/rainfarmr) package
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)

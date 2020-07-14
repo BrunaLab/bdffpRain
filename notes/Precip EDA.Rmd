@@ -169,50 +169,193 @@ ggsave("distribution of NAs.png")
 
 NAs are more common the the dry season in at least some sites indicating that some of those NAs are probably actually zeroes.
 
+km41 is the best data
 
-# Compare with Manaus Data
+# Compare With Other Data Sources
 
-I'll remove any tagged or possible untagged accumulations, then compare remaining data with manaus...somehow.
+I'll merge these rain gauge data with the continuous data from the Manaus weather station and the interpolated GPCC data.  Then, one site at a time, I'll investigate concordance among data sources.
+
+## Prep for merging
+
+Since the GPCC data is aggregated monthly, here I'll aggregate monthly as well.  For now, I'll ignore accumulated precip that crosses month borders and just sum everything for the month, removing missing values.  If there are no precip measurments for the month at a site, then it is a true NA for total precip.
+
+### Aggregate BDFFP data 
 
 ```{r}
 bdffp_ts <- 
   as_tsibble(bdffp, key = site, index = date) %>%
   fill_gaps()
-bdffp_ts
+
+bdffp_mon <- 
+  bdffp_ts %>% 
+  index_by(yearmonth = yearmonth(date)) %>% 
+  group_by(site) %>% 
+  summarize(min_tot_precip = sum(precip, na.rm = TRUE),
+            percent_complete = sum(!is.na(precip))/n()*100) %>% 
+  mutate(min_tot_precip = ifelse(percent_complete == 0, NA, min_tot_precip))
 ```
+
+### Add Manaus data
 
 ```{r}
 manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
 # manaus <- as_tsibble(manaus, index = date)
-manaus <- manaus %>% filter(between(date, min(bdffp$date), max(bdffp$date)))
+manaus <- 
+  manaus %>% 
+  filter(between(date, min(bdffp$date), max(bdffp$date))) %>% 
+  as_tsibble(index = date)
+
+manaus_mon <- manaus %>% 
+  index_by(yearmonth = yearmonth(date)) %>% 
+  summarize(site = "manaus",
+            min_tot_precip = sum(precip),
+            percent_complete = 100)
+
+bdffp_manaus <- bind_rows(bdffp_mon, manaus_mon)
+```
+
+### GPCC data
+
+```{r}
+gpcc <- read_csv(here("data_cleaned", "gpcc_mon_tot_0.5x0.5.csv"))
+gpcc_ts <- 
+  gpcc %>% 
+  as_tsibble(index = date, key = c(lat, lon)) %>% 
+  index_by(yearmonth = yearmonth(date)) %>% 
+  mutate(lat_lab = sp::dd2dms(lat, NS = TRUE) %>% str_replace("d", "º"),
+         lon_lab = sp::dd2dms(lon-360) %>% str_replace("d", "º"))
+```
+
+Which site goes with which grid cell?
+
+```{r}
+unique(gpcc_ts$lat_lab)
+unique(gpcc_ts$lat)
+```
+
+```{r}
+unique(gpcc_ts$lon_lab)
+unique(gpcc_ts$lon)
+```
+I think the GPCC data are centered on the grid cell coordinates.  That means there's really only two grid cells that cover the whole BDFFP site:
+
+```{r}
+knitr::include_graphics("pdbcolp.png")
+```
+```{r}
+unique(bdffp$site)
+```
+
+- Dimona: 2º15'S 60º15'W
+- km37:
+- km41: 2º15'S 59º45'W
+- cabo frio: 2º15'S 59º45'W
+- colosso: 2º15'S 59º45'W
+- florestal: 2º15'S 59º45'W
+- gaviao: 2º15'S 59º45'W
+- porto alegre: 2º15'S 59º45'W (close to the border)
+
+```{r}
+gpcc_mon <-
+  gpcc_ts %>%
+  filter(lat == -2.25, lon %in% c(299.75, 300.25)) %>% 
+  mutate(site = ifelse(lon == 299.75, "gpcc west grid", "gpcc east grid")) %>% 
+  group_by(site) %>% 
+  summarize(min_tot_precip = sum(precip),
+            percent_complete = 100) 
+precip_mon <- bind_rows(bdffp_manaus, gpcc_mon) %>% 
+  filter(year(yearmonth)>1987 & year(yearmonth) < 2013)
 ```
 
 
+# Plot concordance among sites & data sources
+
+## Manaus vs GPCC
+
 ```{r}
-combined <-
-  manaus %>%
-  select(date, precip) %>% 
-  add_column(site = "MANAUS") %>% 
-  bind_rows(bdffp) %>% 
-  # filter(is.na(flag)) %>% 
-  filter(!gaptype %in% c("untagged", "accumulated")) %>% 
-  as_tsibble(key = site, index = date) %>% 
-  fill_gaps()
+precip_mon %>% 
+  filter(site %in% c("gpcc east grid", "manaus", "gpcc west grid")) %>% 
+  ggplot(aes(x = yearmonth, y = min_tot_precip, color = site)) +
+  geom_line() + facet_wrap(~year(yearmonth), scales = "free_x") 
+```
+Pretty consistently less precip in the east compared to west grid cells that cover BDFFP.  Usually less precip in Manaus except for a few wet winters.
+
+## Sites vs. GPCC
+```{r}
+unique(bdffp$site)
+```
+```{r}
+library(rlang) #needed for {{}}
+precip_plot <- function(data, site) {
+  if (site == "dimona") {
+    gpcc <- "gpcc east grid"
+  } else {
+    gpcc <- "gpcc west grid"
+  }
+  pd <- 
+    data %>% 
+    filter(site %in% c({{gpcc}}, {{site}}))
   
-ggplot(combined %>% filter(year(date) == 1999), aes(x = date, y = precip, color = site)) +
-  geom_line() +
-  facet_wrap(~month(date), scales = "free_x")
+  # cat(unique(pd$site))
+  
+  lty <- c(2,1) %>% set_names(c(gpcc, site))
+  p <-
+    ggplot(pd, aes(x = yearmonth, y = min_tot_precip)) +
+    geom_line(aes(linetype = site)) +
+    geom_point(data = pd %>% filter(site != {{gpcc}}),
+               aes(color = percent_complete)) +
+    scale_linetype_manual(values = lty, guide = FALSE) +
+    facet_wrap(~year(yearmonth), scales = "free_x") + 
+    scale_x_yearmonth("Month", date_labels = "%b") +
+    scale_y_continuous("Precipitation (mm)") +
+    scale_color_continuous("%days w/\n observations") +
+    labs(title = glue::glue("{site}"))
+    
+  return(p)
+}
 ```
+
+### km37
+
 ```{r}
-comb_wide <- combined %>% 
-  select(date, site, precip) %>% 
-  pivot_wider(date, names_from = site, values_from = precip) %>% 
-  ungroup() %>% as.data.frame()
-correlate(comb_wide %>% select(-date)) %>%
-  shave() %>% 
-  fashion()
+precip_plot(precip_mon, "km37")
+```
+### km41
 
-comb_wide %>% filter(between(date, ymd("1999-07-01"), ymd("1999-08-01")))
+```{r}
+precip_plot(precip_mon, "km41")
+```
+### Cabo Frio
+
+```{r}
+precip_plot(precip_mon, "cabo frio")
+```
+### Colosso
+
+```{r}
+precip_plot(precip_mon, "colosso")
+```
+### Dimona
+
+```{r}
+precip_plot(precip_mon, "dimona")
+```
+### Florestal
+
+```{r}
+precip_plot(precip_mon, "florestal")
 ```
 
-Low correlations with Manaus station.
+### Gavião
+
+```{r}
+precip_plot(precip_mon, "gaviao")
+```
+
+### Porto Alegre
+
+```{r}
+precip_plot(precip_mon, "porto alegre")
+
+```
+
