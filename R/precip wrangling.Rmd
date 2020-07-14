@@ -121,7 +121,9 @@ all <-
                            km41 = "41dia",
                            "cabo frio" = "cabo",
                            "porto alegre" = "porto",
-                           km37 = "37"))
+                           km37 = "37")) %>% 
+  #change case of observer to be consistent
+  mutate(observador = str_to_title(observador))
 ```
 
 
