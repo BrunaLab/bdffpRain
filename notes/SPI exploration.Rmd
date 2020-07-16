@@ -75,7 +75,7 @@ Calculate SPI with a 3-month window.
 Using defaults seems like the best idea.
 
 ```{r}
-spi(manaus_mon$precip, scale = 12) -> out
+spi(manaus_mon$precip, scale = 6) -> out
 
 out$fitted %>% as_tsibble()
 plot(out)

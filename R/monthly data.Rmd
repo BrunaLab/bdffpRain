@@ -1,0 +1,307 @@
+---
+title: "Monthly Totals"
+author: "Eric R. Scott"
+date: "2020-07-15"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(conflicted)
+library(lubridate)
+library(tsibble)
+library(SPEI)
+library(corrr)
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
+```
+
+*Last compiled: `r Sys.Date()`*
+
+# Purpose
+
+Aggregate monthly total rainfall at BDFFP sites using some method to interpolate/impute gaps.  Compare with using continuous data for calculating SPI.
+
+# Load Data
+
+```{r data, echo=TRUE}
+bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
+bdffp_ts <- as_tsibble(bdffp, key = site, index = date) %>% fill_gaps()
+gpcc <- read_csv(here("data_cleaned", "gpcc_mon_tot_0.5x0.5.csv"))
+gpcc_ts <- as_tsibble(gpcc, index = date, key = c (lat, lon))
+manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
+manaus_ts <- manaus %>% as_tsibble(index = date)
+```
+
+# Meeting with Emilio
+
+Fill in missing *days*, then aggregate monthly to keep more data and more
+potential variation among sites (as opposed to NOAA method that fills in missing
+*months* after aggregation)
+
+chunking/combining sites by camp
+
+1. dimona (less Heliconia, more Monotagma)
+2. Porto alegre
+3. Colosso, florestal, cabo frio
+4. km37 km41
+
+Maybe even combine 3 & 4
+
+Does difference between dimona and km41 even matter?  E.g. is SPI category different often?
+
+0. Just get monthly means with `na.rm = TRUE` and see if SPI is different across sites at BDFFP and compared with GPCC data. (Manaus vs GPCC vs BDFFP pooled vs. BDDP grouped (dimona vs porto alegre vs. colosso cluster vs 37/41)
+
+1. Using the 4 most used sites (colosso, km41, dimona, porto alegre) create a monthly dataset
+  a. Include accumulated observations after gaps less than, say, 5 days
+  b. For longer gaps, spread accumulation up to 5 days behind, then fill in remaining NAs using some rules:
+    i. with data from closest site(s), or...
+    ii. with data from bdffp average for that day, or...
+    iii. with average for that day from last 3 (?) years, or...
+    iV. with GPCC data for closest grid cell
+  c. Alternatively, fill in missing days using a regression method like described by the NOAA paper.
+2. Calculate SPI
+3. Look at concordance of SPI values and categories across 4 sites.
+4. Do a sensitivity analysis 
+  a. change threshold gap size for ignoring accumulated observations
+  b. change rules for filling in NAs
+  c. compare to assumption that NAs are zeroes (i.e. just skipping 1b.)
+5. If no differences across camps (or no ability to detect differences)...
+  a. Average monthly precip across all BDFFP sites (?)
+  a. compare SPI calculated with BDFFP average to GPCC gridded data and station data (Manaus)
+  b. is it worth it to go through step 1, or better to just use GPCC data?
+
+# Reference SPI
+Get SPI calculations for GPCC data and Manaus for comparisons
+
+```{r}
+gpcc_mon <-
+  gpcc_ts %>%
+  filter(lat == -2.25, lon %in% c(299.75, 300.25)) %>% 
+  mutate(site = ifelse(lon == 299.75, "gpcc west grid", "gpcc east grid")) %>% 
+  index_by(yearmonth = yearmonth(date)) %>% 
+  group_by(site) %>% 
+  summarize(min_tot_precip = sum(precip),
+            percent_complete = 100)
+
+```
+
+```{r}
+manaus_mon <-
+  manaus_ts %>% 
+  fill_gaps() %>% #no gaps, but just in case
+  index_by(yearmonth = yearmonth(date)) %>% 
+  summarize(site = "manaus",
+            min_tot_precip = sum(precip, na.rm = TRUE), #only two NAs in manaus data
+            percent_complete = 100)
+```
+
+
+```{r}
+ref_mon <- bind_rows(gpcc_mon, manaus_mon)
+```
+
+```{r}
+ref_spi <- 
+  ref_mon %>% 
+  group_by(site) %>% 
+  mutate(spi = spi(min_tot_precip, scale = 6)$fitted %>% as.numeric()) %>% 
+  mutate(category = case_when(
+    spi <= -2.00 ~ "extreme",
+    spi <= -1.5 & spi > -2 ~ "severe",
+    spi <= -1 & spi > -1.5 ~ "moderate",
+    spi <= 0 & spi > -1 ~ "mild",
+    TRUE ~ "no drought"
+  )) %>% 
+  ungroup() %>% 
+  mutate(category = fct_relevel(category, "no drought", "mild", "moderate", "severe", "extreme"))
+sample_n(ref_spi, 3)
+```
+
+# Quick and dirty
+
+Create a BDFFP average column that produces a single average precip across all sites.
+
+```{r}
+bdffp_wide <-
+  bdffp_ts %>% 
+  select(site, date, precip) %>% 
+  pivot_wider(names_from = site, values_from = precip)
+bdffp_wide$bdffp <- rowMeans(bdffp_wide[2:9], na.rm = TRUE)
+
+bdffp_ts <-
+  bdffp_wide %>% select(date, precip = bdffp) %>% 
+  mutate(site = "bdffp", 
+         doy = yday(date),
+         time = NA,
+         observer = NA,
+         notes = NA,
+         flag = NA) %>% 
+  as_tibble() %>% 
+  bind_rows(bdffp_ts, .) %>% 
+  as_tsibble(index = date, key = site)
+```
+
+Just aggregate monthly with na.rm = TRUE and calculate SPI. This is **definitely** wrong!
+
+```{r}
+bdffp_mon <-
+  bdffp_ts %>% 
+  index_by(yearmonth = yearmonth(date)) %>% 
+  filter(site %in% c("colosso", "dimona", "km41", "porto alegre", "bdffp")) %>%  #4 most used sites
+  group_by(site) %>% 
+  summarize(min_tot_precip = sum(precip, na.rm = TRUE),
+            percent_complete = sum(!is.na(precip))/n()*100) %>% 
+  mutate(min_tot_precip = ifelse(percent_complete == 0, NA, min_tot_precip)) %>% 
+  #just replace na's with zeroes.  SUPER WRONG
+  mutate(min_tot_precip = replace_na(min_tot_precip, 0))
+
+
+bdffp_spi <- 
+  bdffp_mon %>% 
+  group_by(site) %>% 
+  mutate(spi = spi(min_tot_precip, scale = 6)$fitted %>% as.numeric()) %>% 
+  mutate(category = case_when(
+    spi <= -2.00 ~ "extreme",
+    spi <= -1.5 & spi > -2 ~ "severe",
+    spi <= -1 & spi > -1.5 ~ "moderate",
+    spi <= 0 & spi > -1 ~ "mild",
+    TRUE ~ "no drought"
+  )) %>%
+  ungroup() %>% 
+  mutate(category = fct_relevel(category, "no drought", "mild", "moderate", "severe", "extreme"))
+
+```
+
+## Correlation among data sources
+
+Join with reference
+
+```{r}
+ref_spi_vals <-
+  ref_spi %>%
+  as_tibble() %>% 
+  select(yearmonth, site, spi) %>% 
+  pivot_wider(names_from = site, values_from = spi) %>% 
+  filter(complete.cases(.))
+
+all_spi_vals <-
+  left_join(bdffp_spi, ref_spi_vals) %>% 
+  select(site, yearmonth, spi, `gpcc east grid`, `gpcc west grid`, manaus) %>%
+  as_tibble() %>%
+  filter(complete.cases(.))
+```
+
+### SPI values
+
+```{r}
+all_spi_vals %>% 
+  pivot_wider(names_from = site, values_from = spi) %>% 
+  select(-yearmonth) %>% 
+  correlate() %>% 
+  shave()
+```
+km41 is the most complete dataset, and it's in the east part of the site, so not surprising it has the strongest correlation there.
+
+porto alegre is most strongly correlated with the across bdffp average, probably just because it has a relatively complete dataset?
+
+### SPI Categories
+
+How about the SPI categories?
+
+```{r}
+ref_spi_cats <-
+  ref_spi %>%
+  as_tibble() %>% 
+  select(yearmonth, site, category) %>% 
+  pivot_wider(names_from = site, values_from = category) %>% 
+  filter(yearmonth %in% ref_spi_vals$yearmonth)
+
+all_spi_cats <-
+  left_join(bdffp_spi, ref_spi_cats) %>% 
+  select(site, yearmonth, category, spi, `gpcc east grid`, `gpcc west grid`, manaus) %>%
+  as_tibble() %>% 
+  filter(!is.na(spi)) %>% 
+  select(-spi)
+```
+
+```{r}
+all_spi_cats %>% 
+  pivot_wider(values_from = category, names_from = site) %>% 
+  select(-yearmonth) %>% 
+  mutate(across(everything(), as.numeric)) %>% 
+  correlate() %>% 
+  shave()
+```
+
+Looking at drought categories, they are also not well correlated among sites or between individual sites and continuous data.
+
+
+
+
+
+
+# NOAA procedure
+
+[guidelines from NOAA](https://journals.ametsoc.org/jamc/article/52/11/2377/13689/NOAA-s-1981-2010-U-S-Climate-Normals-Monthly)
+
+## Dealing with gaps in data
+
+NOAA only "allows" one or two day gaps.  All other accumulated values are
+discarded.  Any accumulations that cross month boundaries are also discarded.
+
+### Calculate gap length
+
+```{r}
+gaps <-
+  bdffp_ts %>% 
+  group_by(site) %>% 
+  # mutate(row = row_number()) %>% #probably not necessary
+  mutate(cumna = cumsum(is.na(precip))) %>% 
+  filter(!is.na(precip)) %>% 
+  mutate(gap_len = cumna - lag(cumna)) %>% 
+  mutate(gap_len = na_if(gap_len, 0)) %>% 
+  select(-cumna)
+
+bdffp_ts <- full_join(bdffp_ts, gaps)
+```
+
+### Remove accumulations that cross month borders
+
+I'm not sure how to do this, but I think I need a yearmonth or month column maybe?  Or maybe something in lubridate?
+
+Ok, maybe I create a column with month if precip is NA, then check if the months in a row are all identical?  If not, remove the observation after the months?
+
+is `rowwise()` going to be helpful?
+
+```{r}
+bdffp_ts %>% 
+  mutate(month = ifelse(is.na(precip), month(date), NA)) %>% 
+  #if gap length isn't NA, check if the previous `gap_len` months are all equal.
+  mutate(row_num = row_number()) %>% 
+  rowwise() %>% 
+  mutate(test = ifelse(row_num == 32, sum(cur_data()$month[(row_num):(row_num + 2)]), NA))
+  # mutate(check = ifelse(!is.na(gap_len) & all_equal(window())))
+```
+
+
+### Remove observations after large gaps
+
+```{r}
+# remove gaps longer than 2  (might want to go to 3 or 4 later)
+bdffp2 <-
+  bdffp %>% 
+  filter(gap_len < 3 | is.na(gap_len))
+```
+
+
+
+

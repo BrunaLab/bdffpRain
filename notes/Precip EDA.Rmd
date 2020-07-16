@@ -64,7 +64,7 @@ Here's one way to visualize **all** the gaps (includes dates entered into spread
 ```{r}
 bdffp_ts %>% 
   filter(!is.na(precip)) %>% 
-  count_gaps(.full = FALSE) %>% 
+  count_gaps(.full = TRUE) %>% 
   ggplot(aes(y = site)) +
   geom_linerange(aes(xmin = .from, xmax = .to)) +
   # geom_point(aes(x = .from)) +
