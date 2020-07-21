@@ -1,0 +1,125 @@
+---
+title: "Learning Imputation"
+author: "Eric R. Scott"
+date: "2020-07-21"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(conflicted)
+library(tsibble)
+library(imputeTestbench)
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
+```
+
+*Last compiled: `r Sys.Date()`*
+
+# Purpose
+
+Explore options for imputation of missing values
+
+# Load & Wrangle Data
+
+```{r data, echo=TRUE}
+bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
+```
+
+I think I want this wide with just date, and site columns with precip values.  I'll remove ALL accumulations
+
+```{r}
+bdffp_wide <-
+  bdffp %>% 
+  mutate(precip = ifelse(is.na(lag(precip)), NA, precip)) %>% 
+  as_tsibble(key = site, index = date) %>% 
+  fill_gaps() %>% 
+  select(date, site, precip) %>% 
+  as_tibble() %>% 
+  pivot_wider(names_from = site, values_from = precip)
+```
+
+```{r}
+manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
+manaus <-
+  manaus %>%
+  filter(between(date, min(bdffp$date), max(bdffp$date))) %>% 
+  select(date, precip) %>%
+  as_tsibble(index = date) %>% 
+  as.ts()
+```
+
+# Generate test data
+
+```{r}
+manaus_test <- sample_dat(manaus, smps = "mar", blck = 7, blckper = FALSE)
+```
+
+# Linear Regression
+
+Use 4 bdffp sites with most complete observations.  Join to test data
+
+```{r}
+test_ts <- manaus_test[[1]]
+
+df <- left_join(bdffp_wide, as_tsibble(test_ts), by = c("date" = "index")) %>% 
+  select(date, value, dimona, `porto alegre`, colosso, km41)
+```
+
+
+fit a regression with only complete cases.
+
+```{r}
+df_complete <- df %>% filter(complete.cases(.))
+m <- lm(value ~ dimona  + colosso + km41, data = df_complete, na.action = "na.exclude")
+coef(m)
+```
+Oh, wait, duh.  That is the only way it works anyways.  Fuck.
+
+Now, use predict to fill in NAs?
+
+```{r}
+pred <- broom::augment(m, data = df, newdata = df)
+pred %>% filter(is.na(.fitted))
+pred %>% filter(is.na(value) & !is.na(.fitted))
+```
+Only imputes 95 values because only 95 rows where there is data for the three other sites.
+
+
+# Multivariate imputation
+
+What about the `mice` package?  Can I treat preip data at each site (or even site:year?) like multivariate data and impute from that?
+
+```{r}
+library(mice)
+```
+```{r}
+df <- left_join(bdffp_wide, as_tsibble(test_ts), by = c("date" = "index")) %>% janitor::clean_names()
+x1 <- mice(df, maxit = 20)
+
+
+plot(x1)
+stripplot(x1, dimona ~.imp)
+x1$method
+summary(x1)
+```
+
+```{r}
+complete(x1, "long") %>%
+  group_by(.id) %>%
+  summarize_all(mean) %>%
+  pull(value)
+```
+
+
+# Check against true data
+
+Use functions in imputeTestbench to calculate RMSE and stuff

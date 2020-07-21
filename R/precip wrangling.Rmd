@@ -20,6 +20,7 @@ library(readxl)
 library(lubridate)
 library(janitor)
 library(hms)
+library(tsibble)
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 ```
@@ -90,11 +91,39 @@ There are 8 sites, each with a .xls spreadsheet with multiple tabs.  Each tab co
 all <-
   all_raw %>% 
   clean_names() %>% 
-  filter(!is.na(data)) %>%
   mutate(comentario = ifelse(is.na(comentario), commentario, comentario),
          data = as_date(data)) %>% 
   select(-commentario)
 all
+
+#fix typo in date column
+all %>% add_rownames() %>% filter(is.na(data) & !is.na(chuva))
+all$data[6646] <- ymd("2000-03-31")
+
+#remove missing rows
+all <- all %>% filter(!is.na(data))
+```
+
+## Site names
+- Change to lowercase
+- floresta -> florestaL (missing L at end)
+- 41dia -> km41
+- Cabo -> Cabo Frio
+- Porto -> Porto Alegre
+- 37 -> km37
+
+```{r}
+all <-
+  all %>% 
+  mutate(site = str_to_lower(site)) %>% 
+  mutate(site = fct_recode(site,
+                           florestal = "floresta",
+                           km41 = "41dia",
+                           "cabo frio" = "cabo",
+                           "porto alegre" = "porto",
+                           km37 = "37")) %>% 
+  #change case of observer to be consistent
+  mutate(observador = str_to_title(observador))
 ```
 
 
@@ -104,7 +133,7 @@ all
 
 This shows any problems with dates by checking the data against a sequence from earliest to latest date by day.
 
-- the missing dates in 41dia and COLOSSO are typos
+- the missing dates in COLOSSO are typos
 
 ```{r}
 x <- all %>% 
@@ -126,7 +155,7 @@ missing_dates %>%
             min = min(date),
             max = max(date))
 
-# missing_dates %>% filter(site %in% c("41dia", "COLOSSO"))
+# missing_dates %>% filter(site %in% c("41dia", "colosso"))
 ```
 
 - Check that `DIA` matches day of year calculated from date.
@@ -134,15 +163,12 @@ missing_dates %>%
 ```{r}
 all %>% 
   mutate(doy = yday(data)) %>% 
+  #show only rows where the calculated DOY doesn't match the entered DOY
   filter(dia != doy) %>% 
   group_by(site) %>% 
   summarize(n = n(),
             start = min(data),
             end = max(data))
-
-# all %>% 
-#   mutate(doy = yday(data)) %>% 
-#   filter(dia != doy) %>% group_by(site) %>% group_split()
 ```
 A few are (probably) typos,  CABO, DIMONA, and GAVIAO are off by one day for large sections, and I don't know what is going on in PORTO.  This column should be trashed and replaced by `yday(date)`.
 
@@ -208,36 +234,150 @@ all_clean2 %>% skimr::skim()
 unique(all_clean2$notes)
 ```
 
+
+# Check for problems
+
+add rownumbers to facilitate manual data fixing
+
+```{r}
+all_clean2 <- all_clean2 %>% add_rownames()
+```
+
+## Problems in precip
+
+The value for DIMONA 2005-02-22 is not correct.  It got converted to a date by Excel.  Dr. Bruna did some investigating and the correct value is 53
+
+```{r}
+all_clean2 %>% filter(precip < 0)
+all_clean2 %>% filter(precip > 500)
+#typo in Dimona
+all_clean2 <- all_clean2 %>% mutate(precip = replace(precip, rowname == 27450, 53))
+```
+## Problems with dates
+
+Check if dates are in order and if any are missing:
+
+```{r}
+#Dates not in order
+all_clean2 %>% 
+  add_rownames() %>% 
+  group_by(site) %>% 
+  filter(date != lag(date) + 1 & !is.na(lag(date)))
+```
+
+### Just implicit missing data:
+
+```{r, eval=FALSE}
+all_clean2 %>%
+  slice(6512:6515)
+
+all_clean2 %>% 
+  slice(29980:29984)
+
+all_clean2 %>% 
+  slice(30073:30078)
+
+all_clean2 %>% 
+  slice(30469:30473)
+
+all_clean2 %>% 
+  slice(36710:36715)
+
+all_clean2 %>% 
+  slice(38200:38206)
+```
+
+### Typos That need fixing
+
+Typos in date
+
+```{r}
+all_clean2 %>% 
+  slice(12572:12576)
+
+all_clean2 %>% 
+  slice(32249:32253)
+
+all_clean2 %>% 
+  slice(39059:39066)
+
+all_clean2 %>% 
+  slice(38617:38622)
+
+typos <- c("12574" = ymd("1988-10-01"),
+           "32252" = ymd("1992-10-14"),
+           "39062" = ymd("1994-01-05"),
+           "39064" = ymd("1994-01-07"),
+           "38620" = ymd("1992-10-20"))
+
+all_clean2 <- 
+  all_clean2 %>% 
+  mutate(date = replace(date, rowname %in% as.numeric(names(typos)), typos))
+```
+
+Duplicated and empty dates
+
+```{r}
+all_clean2 %>% 
+  slice(10530:10536)
+#duplicated dec 1
+
+all_clean2 <- all_clean2 %>% filter(rowname != 10533)
+```
+
+## Duplicated dates
+
+These must be dealt with somehow
+
+```{r}
+duplicates(all_clean2, key = site, index = date)
+```
+
+# Flags and notes
+
+I think it would be useful to create a `flag` column using the information in the notes.  I should research if there are some standards for how to do this already (like, what letters to use).  There are also some notes that relate to data directly possibly.
+
+## Creating flags
+
+Flags:
+
+- `A`: tagged accumulation
+- `E`: data error
+- `T`: trace precipitation
+
+```{r}
+notes <- all_clean2$notes %>% unique()
+notes
+```
+```{r}
+all_clean2 <- 
+  all_clean2 %>% 
+  mutate(flag = case_when(
+    str_detect(notes, "(A|a|Á)c{1,2}umu") ~ "accumulated",
+    str_detect(notes, "(P|p)luviometro no ch") ~ "error",
+    str_detect(notes, "errada") ~ "error",
+    str_detect(notes, "chuva noite<0,1") ~ "trace",
+    TRUE ~ NA_character_
+  ))
+```
+
+
+## Explicit NAs entered as 0
+
+Some observations have 0 entered for precip, but "nao foi feita observ" (no observation made) entered in notes.
+
+```{r}
+# all_clean2 %>% filter(notes == "nao foi feita observ")
+all_clean2 <-
+  all_clean2 %>% 
+  mutate(precip = replace(precip, str_detect(notes, "nao foi feita observ"), NA))
+```
+
+
 # Write to file
 
 ```{r}
-write_csv(all_clean2, here("data_cleaned", "daily_precip.csv"))
+#remove rowname
+out <- all_clean2 %>% select(-rowname)
+write_csv(out, here("data_cleaned", "daily_precip.csv"))
 ```
-
-
-# Check / mark accumulated data
-
-After no one uses a site for a while, the next observation is accumulated.  Sometimes it is marked as such in the comments, but not always.  Other times, the site has maybe not been used for over a month and the next observation doesn't seem like it is accumulated.  I'm not sure the best way to deal with this right now.
-
-In some cases, the note "nao foi feita observ" (no observation was made) notes that a value is **not** accumulated (I think?), but this doesn't seem to be consistent.
-
-```{r}
-all_clean3 <-
-  all_clean2 %>% 
-  group_by(site) %>% 
-  #remove leading NA's first.
-  filter(!cumall(is.na(precip))) %>% 
-  #anything observation preceded by an NA note as "Accumulated"
-  mutate(accumulated = ifelse(is.na(lag(precip, default = 1)) & !is.na(precip), "accumulated", NA)) %>%
-  #remove missing observations
-  filter(!is.na(precip))
-
-# E.g. at this site there are long stretches of NAs followed by low precip values.
-# all_clean2 %>% 
-#   filter(site == "COLOSSO") %>%
-#   View()
-```
-
-
-
-
