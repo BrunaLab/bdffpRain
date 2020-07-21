@@ -1,0 +1,26 @@
+on:
+  push:
+    branches:
+      - master
+      - qa-qc
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+name: run-tests
+
+jobs:
+  test:
+    runs-on: macOS-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: r-lib/actions/setup-r@master
+      - name: Install dependencies
+        run: |
+          install.packages("renv")
+          renv::restore()
+        shell: Rscript {0}
+      - name: Test
+        run: source("tests/testthat.R")
+        shell: Rscript {0}
