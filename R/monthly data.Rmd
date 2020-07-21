@@ -42,7 +42,7 @@ manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
 manaus_ts <- manaus %>% as_tsibble(index = date)
 ```
 
-# Meeting with Emilio
+# Notes from Meeting with Emilio
 
 Fill in missing *days*, then aggregate monthly to keep more data and more
 potential variation among sites (as opposed to NOAA method that fills in missing
@@ -327,103 +327,24 @@ all_spi%>%
 Looking at drought categories, they are also not well correlated among sites or between individual sites and continuous data.
 
 
-# NOAA procedure
+# Imputation
 
-[guidelines from NOAA](https://journals.ametsoc.org/jamc/article/52/11/2377/13689/NOAA-s-1981-2010-U-S-Climate-Normals-Monthly)
+Another possibility is to spread accumulated values for gaps smaller than 3 days (like NOAA), and remove accumulations for larger gaps.  Then, impute all missing values in some way.  I could use the Manaus and/or GPCC data to test different imputation methods by removing values, imputing them, and calculating RMSE.  The [`imputeTestbench`](https://cran.r-project.org/web/packages/imputeTestbench/index.html) package might help with this, although it sounds like it only works with univariate imputation.
 
-NAs in gaps less than 3 days are ignored.  Longer runs of NAs or NAs that cross month boundaries invalidate monthly total.  To replicate this in R I need to do something so small groups of NAs are just removed, and values after large groups of NAs or ones that cross month borders are set to NA.  Keeping the NAs in these gaps will invalidate the monthly totals if na.rm = FALSE.
+Regardless, it seems like it would be helpful to have some test set that I could then use to check the effectiveness of various methods.
 
-## Dealing with gaps in data
-
-NOAA only "allows" one or two day gaps.  All other accumulated values are
-discarded.  Any accumulations that cross month boundaries are also discarded.
-```{r}
-allowed_gap <- 14
-```
-
-### Calculate gap length
 
 ```{r}
-gaps <-
-  bdffp_ts %>% 
-  group_by(site) %>% 
-  # mutate(row = row_number()) %>% #probably not necessary
-  mutate(cumna = cumsum(is.na(precip))) %>% 
-  filter(!is.na(precip)) %>% 
-  mutate(gap_len = cumna - lag(cumna)) %>% 
-  mutate(gap_len = na_if(gap_len, 0)) %>% 
-  select(-cumna)
-
-bdffp_ts <- full_join(bdffp_ts, gaps)
-bdffp_ts <- 
-  bdffp_ts %>% 
-  group_by(site) %>% 
-  mutate(gap_len2 = ifelse(!is.na(precip) & is.na(gap_len), 0, gap_len)) %>% 
-  fill(gap_len2, .direction = "up")
+library(imputeTestbench)
 ```
 
 
-### Set unallowed accumulations to NA
-#### gaps larger than 2 days
-
 ```{r}
-bdffp_noaa <- 
-  bdffp_ts %>%
-  mutate(precip = ifelse(gap_len > allowed_gap & !is.na(gap_len), NA, precip))
+class(manaus)
+manaus.ts <- as.ts(manaus_ts %>% select(date, precip))
+aa <- impute_errors(manaus.ts, smps = "mar", blck = 7, blckper = FALSE) #i think this is close to median gap length
+plot_errors(aa)
 ```
 
-#### gaps that cross months
-The way this works is if the difference between the month on the day of the accumulated observation is different from the month at the beginning of the NAs, then that observation is removed
+I think I should consider multivariate imputation treating each site as a variable.  The `mice` package can do this, but doesn't know about time series.  It sounds like the [`mtsdi`](https://cran.r-project.org/web/packages/mtsdi/index.html) package is built for imputation of multivariate time series and draws on information from other sites *and* previous time periods to impute missing values.  There is another package, [`amelia`](https://gking.harvard.edu/amelia) that appears to do something similar.
 
-This should only apply to gaps longer than a day, I think.
-
-```{r}
-bdffp_noaa <-
-  bdffp_noaa %>% 
-  mutate(month = month(date)) %>% 
-  rowid_to_column() %>% 
-  group_by(site) %>% 
-  mutate(
-    x =
-      ifelse(
-        !is.na(gap_len) & gap_len > 1,
-        cur_data()$month[rowid] - cur_data()$month[rowid-gap_len],
-        0
-      )
-    ) %>% 
-  mutate(precip = ifelse(x != 0,
-                         NA,
-                         precip)) %>% 
-  select(-month, -x)
-```
-
-### Remove NAs for small gaps
-Remove NAs for gaps shorter than 2 days (might want to go to 3 or 4 later)
-
-```{r}
-bdffp_noaa <-
-  bdffp_noaa %>% 
-  mutate(gap_len2 = ifelse(!is.na(gap_len), 0, gap_len2)) %>% 
-  filter(gap_len2 == 0 | gap_len2 > allowed_gap)
-unique(bdffp_noaa$site)
-```
-
-### Now calculate monthly totals
-
-Using na.rm = FALSE
-
-```{r}
-noaa_tot <-
-  bdffp_noaa %>% 
-  index_by(yearmonth = yearmonth(date)) %>% 
-  group_by(site) %>% 
-  summarize(tot_precip = sum(precip))
-noaa_tot
-```
-```{r}
-noaa_tot %>% 
-  as_tibble() %>% 
-  group_by(site) %>% 
-  summarize(complete = sum(!is.na(tot_precip))/n()*100)
-```
-yeeesh, using NOAA rules of thumb, km41 is 28% complete, but some sites have zero months. Even increasing to 14 days allowable gap doesn't change anything.
