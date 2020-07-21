@@ -1,4 +1,3 @@
 library(testthat)
-library(Heliconia-Drought)
 
-test_check("Heliconia-Drought")
+test_dir("tests/testthat", reporter = c("check", "progress"))
