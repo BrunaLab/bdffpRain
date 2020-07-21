@@ -1,4 +1,6 @@
 library(readr)
+library(tidyr)
+library(dplyr)
 library(tsibble)
 library(lubridate)
 library(here)
@@ -16,5 +18,14 @@ test_that("dates are correct", {
   #are dates in order and continuous?
   skip("This is actually too strict because legit gaps in measurment will cause it to fail")
   expect_true(all(bdffp$date == lag(bdffp$date) + 1, na.rm = TRUE))
+})
+
+test_that("correlations among sites are within tolerance", {
+  #I don't know if this is sensible.  Just an idea borrowed from Durre et al. 2013
+  bdffp_wide <- bdffp %>% 
+    pivot_wider(matches("date"), names_from = site, values_from = precip)
+
+  cors <- cor(select(bdffp_wide, -date), use = "pairwise.complete.obs", method = "spearman")
+  expect_false(any(cors < 0.1, na.rm = TRUE))
 })
 
