@@ -18,6 +18,9 @@ library(here)
 library(conflicted)
 library(tsibble)
 library(imputeTestbench)
+library(lubridate)
+library(janitor)
+library(naniar)
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 ```
@@ -34,7 +37,7 @@ Explore options for imputation of missing values
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
 ```
 
-I think I want this wide with just date, and site columns with precip values.  I'll remove ALL accumulations
+I think I want this wide with just date, and site columns with precip values.  I'll remove ALL accumulations for this test.
 
 ```{r}
 bdffp_wide <-
@@ -44,82 +47,187 @@ bdffp_wide <-
   fill_gaps() %>% 
   select(date, site, precip) %>% 
   as_tibble() %>% 
-  pivot_wider(names_from = site, values_from = precip)
+  pivot_wider(names_from = site, values_from = precip) %>% 
+  clean_names() 
+
+bdffp_test <-
+  bdffp_wide %>% 
+  #create "clusters"
+  rowwise() %>% 
+  mutate(colosso_clust = mean(c(colosso, cabo_frio, florestal), na.rm = TRUE),
+         km_clust = mean(c(km37, km41), na.rm = TRUE)) %>% 
+  mutate(across(ends_with("_clust"), ~ifelse(is.nan(.x), NA, .x))) %>% 
+  #only include 4 most-used sites
+  select(date, dimona, porto_alegre, km_clust, colosso_clust) %>% 
+  filter(date < ymd("2010-11-26"))
+
+vis_miss(bdffp_test)
 ```
+
+
 
 ```{r}
 manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
-manaus <-
+manaus_ts <-
   manaus %>%
-  filter(between(date, min(bdffp$date), max(bdffp$date))) %>% 
+  filter(between(date, min(bdffp_test$date), max(bdffp_test$date))) %>% 
   select(date, precip) %>%
   as_tsibble(index = date) %>% 
+  fill_gaps() %>% 
   as.ts()
 ```
 
+# Testing with imputeTestBench
+
+This package is built for testing univariate timeseries imputation, but I can supply my own functions, I think, and it will work as long as they take a time series object and return a time series object.
+
+NOTE: this stack exchange thread says that `mtdsi` is only applicable for normally distributed data: https://stats.stackexchange.com/questions/261271/imputation-methods-for-time-series-data/290563
+
+log transformation might help (`log = TRUE`)
+
+```{r}
+manaus_ts %>% as_tsibble() %>% filter(between(index, first(index), nth(index, 730))) %>% as.ts() -> test
+out <-
+  imputeTestbench::impute_errors(
+    test,
+    smps = "mar",
+    blck = 7,
+    blckper = FALSE,
+    methods = c("na_mean",
+                # "interp_mice",
+                # "interp_mtsdi", #waaaay too slow
+                ),
+    methodPath = here("R", "interpolation_tests.R")
+  )
+out
+plot_errors(out)
+```
+
+Wow, `mice` does a terrible job!
+
+
 # Generate test data
 
+Introduces `NA`s at random (not completely at random, but in blocks).  I'm going to use 7 NAs in a row as the block size.  It produces several datasets with different % of NAs for testing.
+
 ```{r}
-manaus_test <- sample_dat(manaus, smps = "mar", blck = 7, blckper = FALSE)
+manaus_test <- sample_dat(manaus_ts, smps = "mar", blck = 7, blckper = FALSE)
 ```
 
-# Linear Regression
-
-Use 4 bdffp sites with most complete observations.  Join to test data
+Now I can join them back up to the bdffp data
 
 ```{r}
-test_ts <- manaus_test[[1]]
+bdffp_ts <- bdffp_wide %>% as_tsibble(index = date)
+manaus_ts_list <-
+  manaus_test %>% map(
+    ~ as_tsibble(.x) %>% 
+      rename(date = index, manaus = value)
+  )
 
-df <- left_join(bdffp_wide, as_tsibble(test_ts), by = c("date" = "index")) %>% 
-  select(date, value, dimona, `porto alegre`, colosso, km41)
+test_list <-
+  manaus_ts_list %>%
+  map(
+    ~left_join(bdffp_ts, .x) %>%
+      filter(between(date, ymd("1990-01-01"), ymd("1995-01-01")))
+    )
 ```
 
-
-fit a regression with only complete cases.
-
-```{r}
-df_complete <- df %>% filter(complete.cases(.))
-m <- lm(value ~ dimona  + colosso + km41, data = df_complete, na.action = "na.exclude")
-coef(m)
-```
-Oh, wait, duh.  That is the only way it works anyways.  Fuck.
-
-Now, use predict to fill in NAs?
+# mtsdi package
 
 ```{r}
-pred <- broom::augment(m, data = df, newdata = df)
-pred %>% filter(is.na(.fitted))
-pred %>% filter(is.na(value) & !is.na(.fitted))
-```
-Only imputes 95 values because only 95 rows where there is data for the three other sites.
-
-
-# Multivariate imputation
-
-What about the `mice` package?  Can I treat preip data at each site (or even site:year?) like multivariate data and impute from that?
-
-```{r}
-library(mice)
-```
-```{r}
-df <- left_join(bdffp_wide, as_tsibble(test_ts), by = c("date" = "index")) %>% janitor::clean_names()
-x1 <- mice(df, maxit = 20)
-
-
-plot(x1)
-stripplot(x1, dimona ~.imp)
-x1$method
-summary(x1)
+library(mtsdi)
 ```
 
+This package has no vignette and very minimal documentation, but it is lightweight and claims to be for multivariate time series data specifically.
+
+It seems like to make this work with spatio-temporal data, I need to specify the method as "arima" and provide some arguments to be passed to `arima()`.  Looks like I'll need to do more reading to figure out how to specify and ARIMA model.  I still don't understand how to tell it about spatial correlations.
+
+## Using package data and examples:
+
 ```{r}
-complete(x1, "long") %>%
-  group_by(.id) %>%
-  summarize_all(mean) %>%
-  pull(value)
+data(miss)
+
+x <- mstats(miss)
+x$columns
+
+f <- ~c31+c32+c33+c34+c35
+## one-window covariance
+i <- mnimput(f, miss, ts=TRUE, method="spline")
+summary(i)
+predict(i)
+
+## two-window covariances
+b <- c(rep("year1", 12), rep("year2", 12))
+ii <- mnimput(f, miss, by = b, ts = TRUE, method="spline")
+summary(ii)
+predict(i)
 ```
 
 
-# Check against true data
+## with ARIMA
 
-Use functions in imputeTestbench to calculate RMSE and stuff
+ARIMA is some kind of state-space model that I don't know how to use.  I need to supply some p, d, and q things.  `forecast` package has an `auto.arima()` function that estimates those from data, but it only works on univariate data.  But maybe I can borrow the p, d, and q values from that and plug them in to `mnimput` for now.
+
+>Each column of order must hold the corresponding (p,d,q) parameters for each univariate time series if period is NULL. If period is not NULL, order must also hold the multiplicative seasonality parameters, so each column of order takes the form (p,d,q,P,D,Q)
+
+I'm going to pretend that `miss` is daily data.
+
+```{r}
+library(forecast)
+
+miss_ts <- 
+  miss %>% 
+  add_column(date = c(make_date(year = 1990, month = 1:12, day = 1), make_date(year = 1991, month = 1:12, day = 1))) %>%
+  mutate(date = yearmonth(date)) %>%
+  as_tsibble(index = date)
+
+miss_ts <-
+  miss %>% 
+  add_column(date = as_date(Sys.Date():(Sys.Date() + 23))) %>% 
+  as_tsibble(index = date)
+  
+miss_ts %>% select(c35) %>% as.ts() %>% auto.arima()
+
+c31 <- c(0,0,0, 0,0,0)
+c32 <- c(0,0,0, 0,0,0)
+c33 <- c(0,0,0, 0,0,0)
+c34 <- c(0,0,0, 1,0,0)
+c35 <- c(0,0,1, 0,0,0)
+arima_specs <- as.matrix(bind_cols(c31, c32, c33, c34, c35))
+
+```
+```{r}
+fit <- mnimput(f, miss, method = "arima", ar.control = list(order = arima_specs, period = 7))
+fit
+predict(fit)
+```
+
+
+## With my test data
+
+```{r}
+x <- mstats(test_list[[5]])
+x$columns
+```
+
+hmmmm... lets just go with most used sites for the test
+
+```{r}
+test_list <- test_list %>% map(~select(.x, date, colosso, dimona, km41, porto_alegre, manaus))
+```
+
+```{r}
+test_list[[1]]
+```
+
+Formula for missing data frame
+```{r}
+f <- ~ colosso + dimona + km41 + porto_alegre + manaus
+```
+
+do imputation
+
+```{r}
+test_imp <- mnimput(f, test_list[[1]], ts = TRUE)
+```
+
