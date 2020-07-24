@@ -85,7 +85,7 @@ NOTE: this stack exchange thread says that `mtdsi` is only applicable for normal
 
 log transformation might help (`log = TRUE`)
 
-```{r}
+```{r eval=FALSE}
 manaus_ts %>% as_tsibble() %>% filter(between(index, first(index), nth(index, 730))) %>% as.ts() -> test
 out <-
   imputeTestbench::impute_errors(
@@ -103,131 +103,168 @@ out
 plot_errors(out)
 ```
 
-Wow, `mice` does a terrible job!
+Wow, `mice` does a terrible job!  `mtsdi` is waaay too slow!
 
-
-# Generate test data
-
-Introduces `NA`s at random (not completely at random, but in blocks).  I'm going to use 7 NAs in a row as the block size.  It produces several datasets with different % of NAs for testing.
+# With Amelia II
 
 ```{r}
-manaus_test <- sample_dat(manaus_ts, smps = "mar", blck = 7, blckper = FALSE)
+library(Amelia)
 ```
 
-Now I can join them back up to the bdffp data
+Make a data frame for testing.  For now I'll only use precip values so I can switch between wide and long formats more easily.
 
 ```{r}
-bdffp_ts <- bdffp_wide %>% as_tsibble(index = date)
-manaus_ts_list <-
-  manaus_test %>% map(
-    ~ as_tsibble(.x) %>% 
-      rename(date = index, manaus = value)
+full_wide <-
+  left_join(bdffp_test, manaus, by = "date") %>%
+  mutate(year = year(date), doy = yday(date)) %>%
+  select(year, doy, everything()) %>%
+  select(- temp_max, -temp_min, -sun_time)
+
+slice_wide <- full_wide[3000:4000,] %>% as.data.frame()
+slice_wide <- slice_wide %>% rename(manaus = precip) %>% select(year, doy, date:manaus)
+```
+
+```{r}
+imp_simple <- amelia(slice_wide, idvars = c("date", "doy", "year"))
+plot(imp_simple)
+```
+
+```{r}
+imp_tsdoy <-
+  amelia(
+    slice_wide,
+    p2s = 1,
+    m = 10,
+    ts = "doy",
+    cs = "year",
+    intercs = TRUE,
+    polytime = 3,
+    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
+    idvars = c("date"),
+    empri = .01*nrow(slice_wide) #ridge penalty because of high degree of missingness
   )
-
-test_list <-
-  manaus_ts_list %>%
-  map(
-    ~left_join(bdffp_ts, .x) %>%
-      filter(between(date, ymd("1990-01-01"), ymd("1995-01-01")))
-    )
-```
-
-# mtsdi package
-
-```{r}
-library(mtsdi)
-```
-
-This package has no vignette and very minimal documentation, but it is lightweight and claims to be for multivariate time series data specifically.
-
-It seems like to make this work with spatio-temporal data, I need to specify the method as "arima" and provide some arguments to be passed to `arima()`.  Looks like I'll need to do more reading to figure out how to specify and ARIMA model.  I still don't understand how to tell it about spatial correlations.
-
-## Using package data and examples:
-
-```{r}
-data(miss)
-
-x <- mstats(miss)
-x$columns
-
-f <- ~c31+c32+c33+c34+c35
-## one-window covariance
-i <- mnimput(f, miss, ts=TRUE, method="spline")
-summary(i)
-predict(i)
-
-## two-window covariances
-b <- c(rep("year1", 12), rep("year2", 12))
-ii <- mnimput(f, miss, by = b, ts = TRUE, method="spline")
-summary(ii)
-predict(i)
-```
-
-
-## with ARIMA
-
-ARIMA is some kind of state-space model that I don't know how to use.  I need to supply some p, d, and q things.  `forecast` package has an `auto.arima()` function that estimates those from data, but it only works on univariate data.  But maybe I can borrow the p, d, and q values from that and plug them in to `mnimput` for now.
-
->Each column of order must hold the corresponding (p,d,q) parameters for each univariate time series if period is NULL. If period is not NULL, order must also hold the multiplicative seasonality parameters, so each column of order takes the form (p,d,q,P,D,Q)
-
-I'm going to pretend that `miss` is daily data.
-
-```{r}
-library(forecast)
-
-miss_ts <- 
-  miss %>% 
-  add_column(date = c(make_date(year = 1990, month = 1:12, day = 1), make_date(year = 1991, month = 1:12, day = 1))) %>%
-  mutate(date = yearmonth(date)) %>%
-  as_tsibble(index = date)
-
-miss_ts <-
-  miss %>% 
-  add_column(date = as_date(Sys.Date():(Sys.Date() + 23))) %>% 
-  as_tsibble(index = date)
-  
-miss_ts %>% select(c35) %>% as.ts() %>% auto.arima()
-
-c31 <- c(0,0,0, 0,0,0)
-c32 <- c(0,0,0, 0,0,0)
-c33 <- c(0,0,0, 0,0,0)
-c34 <- c(0,0,0, 1,0,0)
-c35 <- c(0,0,1, 0,0,0)
-arima_specs <- as.matrix(bind_cols(c31, c32, c33, c34, c35))
-
-```
-```{r}
-fit <- mnimput(f, miss, method = "arima", ar.control = list(order = arima_specs, period = 7))
-fit
-predict(fit)
-```
-
-
-## With my test data
-
-```{r}
-x <- mstats(test_list[[5]])
-x$columns
-```
-
-hmmmm... lets just go with most used sites for the test
-
-```{r}
-test_list <- test_list %>% map(~select(.x, date, colosso, dimona, km41, porto_alegre, manaus))
+imp_tsdoy
+tscsPlot(imp_tsdoy, cs = "1996", var = "km_clust")
 ```
 
 ```{r}
-test_list[[1]]
-```
+slice_long <- 
+  slice_wide %>% 
+  pivot_longer(dimona:manaus, names_to = "site", values_to = "precip") %>% 
+  arrange(site, date) %>% 
+  mutate(date_num = as.numeric(date)) %>% as.data.frame()
 
-Formula for missing data frame
+imp_tsdate <-
+  amelia(
+    slice_long,
+    m = 10,
+    p2s = 1,
+    ts = "date",
+    cs = "site",
+    intercs = TRUE,
+    polytime = 3,
+    logs = c("precip"),
+    idvars = c("year", "doy", "date_num"),
+    empri = .01*nrow(slice_long) #ridge penalty because of high degree of missingness
+  )
+imp_tsdate
+```
+So I've imputed this dataset two ways:
+1. in `imp_tsdoy` using day of year as the time series variable and year as a cross-section with each site as a different variable.
+2. in `imp_tsdate` using date as the time series variable and site as a cross-section with only one variable—precip.
+
+I want to look at their performance to see if one is better
+
 ```{r}
-f <- ~ colosso + dimona + km41 + porto_alegre + manaus
+imp_tsdoy
 ```
-
-do imputation
+The chain lengths for the first method are fairly different, potentially indicating a problem.
 
 ```{r}
-test_imp <- mnimput(f, test_list[[1]], ts = TRUE)
+imp_tsdate
 ```
 
+```{r}
+tscsPlot(imp_tsdoy, cs ="1996", var = "dimona", ylim = c(0,100))
+```
+
+```{r}
+as.numeric(ymd("1996-12-31"))
+tscsPlot(imp_tsdate, cs = "dimona", var = "precip", xlim = c(9496, 9861), ylim = c(0,100))
+```
+
+Confidence intervals smaller with date method, but values look weird.  Zeroes seem much less likely for this method.
+
+Let's try adding more variables
+
+```{r}
+slice_wide2 <-
+  full_wide %>% 
+  rename(manaus = precip) %>% 
+  filter(between(date, min(slice_wide$date), max(slice_wide$date))) %>% 
+  as.data.frame()
+
+# hist(slice_wide2$wind_speed)
+
+imp_ts2 <-
+  amelia(
+    slice_wide2,
+    m = 10,
+    p2s = 1,
+    ts = "doy",
+    cs = "year",
+    intercs = TRUE,
+    polytime = 3,
+    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    idvars = c("date"),
+    empri = .005*nrow(slice_wide) #ridge penalty because of high degree of missingness
+  )
+```
+```{r}
+imp_ts2
+```
+
+```{r}
+tscsPlot(imp_tsdoy, cs ="1996", var = "dimona", ylim = c(0,100))
+tscsPlot(imp_ts2, cs ="1996", var = "dimona", ylim = c(0,100))
+
+```
+smaller CIs
+
+Let's try adding leads and lags of precip
+
+```{r}
+imp_ts3 <-
+  amelia(
+    slice_wide2,
+    m = 10,
+    p2s = 1,
+    ts = "doy",
+    cs = "year",
+    intercs = TRUE,
+    polytime = 3,
+    leads = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
+    lags = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
+    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    idvars = c("date"),
+    empri = .005*nrow(slice_wide) #ridge penalty because of high degree of missingness
+  )
+```
+```{r}
+tscsPlot(imp_tsdoy, cs ="1996", var = "km_clust", ylim = c(0,150))
+tscsPlot(imp_ts2, cs ="1996", var = "km_clust", ylim = c(0,150))
+tscsPlot(imp_ts3, cs ="1996", var = "km_clust", ylim = c(0,150))
+```
+
+```{r}
+overimpute(imp_tsdoy, var = "km_clust")
+overimpute(imp_ts2, var = "km_clust")
+overimpute(imp_ts3, var = "km_clust")
+plot(imp_ts3)
+```
+Color is row-wise missingness.  Ideal would be on line, that means if you pull out a precip value at, say 100 mm, then it would imput that value as 100mm perfectly every time.
+
+```{r}
+disperse(imp_ts3, dims = 1, m = 10)
+```
+Converges fine.
