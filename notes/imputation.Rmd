@@ -1,5 +1,5 @@
 ---
-title: "Learning Imputation"
+title: "Imputation with Amelia"
 author: "Eric R. Scott"
 date: "2020-07-21"
 output: 
@@ -17,10 +17,10 @@ library(tidyverse)
 library(here)
 library(conflicted)
 library(tsibble)
-library(imputeTestbench)
 library(lubridate)
 library(janitor)
-library(naniar)
+library(Amelia)
+
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 ```
@@ -29,27 +29,46 @@ conflict_prefer("lag", "dplyr")
 
 # Purpose
 
-Explore options for imputation of missing values
+Explore options for imputation of missing values.  In earlier versions of this document, I explored several options for imputation.  The `mice` package does multiple, multivariate imputation but it performed worse than simple methods like just using the mean.  The `mtsdi` package is for multivariate timeseries data, but it was too slow to be useable and poorly documented.  `Amelia` is well documented, and has functions to work with cross-sectional timeseries data.  It seems flexible, fast, and has built-in diagnostic features.
 
 # Load & Wrangle Data
+
+Because of the high degree of missingness in the BDFFP data, I'll combine a few sites into "clusters". The `Amelia` docs suggest using more variables rather than fewer, as it will increase the predictive power of the imputation algorithm. I'll therefore combine the BDFFP data with GPCC gridded data and Manaus station data (including variables besides precip). 
 
 ```{r data, echo=TRUE}
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
 ```
 
-I think I want this wide with just date, and site columns with precip values.  I'll remove ALL accumulations for this test.
+## Remove accumulations
+
+I'll remove ALL accumulations for an initial test and impute those values.  `Amelia` has the ability to take informative priors about individual observations, so in the future maybe I can use accumulated values to inform preceeding `NA`s.
 
 ```{r}
-bdffp_wide <-
+bdffp2 <-
   bdffp %>% 
-  mutate(precip = ifelse(is.na(lag(precip)), NA, precip)) %>% 
+  #remove all accumulations
+  mutate(precip = ifelse(is.na(lag(precip)), NA, precip))
+```
+
+## Make wide
+
+I'm going to treat each site as a variable so `Amelia` can take advantage of information from all the sites. For that, I need a wide dataset.
+
+```{r}
+bdffp_wide <- 
+  bdffp2 %>% 
+  #complete all the dates
   as_tsibble(key = site, index = date) %>% 
   fill_gaps() %>% 
   select(date, site, precip) %>% 
   as_tibble() %>% 
   pivot_wider(names_from = site, values_from = precip) %>% 
-  clean_names() 
+  clean_names()
+```
 
+Now I'll combine some of the sites into "clusters" so the degree of missingness is lower.
+
+```{r}
 bdffp_test <-
   bdffp_wide %>% 
   #create "clusters"
@@ -61,79 +80,70 @@ bdffp_test <-
   select(date, dimona, porto_alegre, km_clust, colosso_clust) %>% 
   filter(date < ymd("2010-11-26"))
 
-vis_miss(bdffp_test)
+missmap(bdffp_test)
 ```
 
-
+## Add Manaus data
 
 ```{r}
 manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
-manaus_ts <-
-  manaus %>%
-  filter(between(date, min(bdffp_test$date), max(bdffp_test$date))) %>% 
-  select(date, precip) %>%
-  as_tsibble(index = date) %>% 
-  fill_gaps() %>% 
-  as.ts()
 ```
 
-# Testing with imputeTestBench
-
-This package is built for testing univariate timeseries imputation, but I can supply my own functions, I think, and it will work as long as they take a time series object and return a time series object.
-
-NOTE: this stack exchange thread says that `mtdsi` is only applicable for normally distributed data: https://stats.stackexchange.com/questions/261271/imputation-methods-for-time-series-data/290563
-
-log transformation might help (`log = TRUE`)
-
-```{r eval=FALSE}
-manaus_ts %>% as_tsibble() %>% filter(between(index, first(index), nth(index, 730))) %>% as.ts() -> test
-out <-
-  imputeTestbench::impute_errors(
-    test,
-    smps = "mar",
-    blck = 7,
-    blckper = FALSE,
-    methods = c("na_mean",
-                # "interp_mice",
-                # "interp_mtsdi", #waaaay too slow
-                ),
-    methodPath = here("R", "interpolation_tests.R")
-  )
-out
-plot_errors(out)
-```
-
-Wow, `mice` does a terrible job!  `mtsdi` is waaay too slow!
-
-# With Amelia II
-
-```{r}
-library(Amelia)
-```
-
-Make a data frame for testing.  For now I'll only use precip values so I can switch between wide and long formats more easily.
+I'll join and remove a few variables with weird distributions
 
 ```{r}
 full_wide <-
   left_join(bdffp_test, manaus, by = "date") %>%
+  rename(manaus = precip) %>% 
   mutate(year = year(date), doy = yday(date)) %>%
   select(year, doy, everything()) %>%
-  select(- temp_max, -temp_min, -sun_time)
-
-slice_wide <- full_wide[3000:4000,] %>% as.data.frame()
-slice_wide <- slice_wide %>% rename(manaus = precip) %>% select(year, doy, date:manaus)
+  select(-temp_max, -temp_min, -sun_time)
 ```
 
+## Add other data sources?
+
+I could add GPCC data, but it is aggregated monthly, so the distribution might be strange and it might not add that much more information.  Adding the other weather station near BDFFP would be ideal though.
+
+# Impute with Amelia II
+
+## Test data
+
+Make a data frame for testing that is a subset of a few years.  I'll also make on that only has precip data in it, for testing.
+
 ```{r}
-imp_simple <- amelia(slice_wide, idvars = c("date", "doy", "year"))
+slice_wide <- full_wide %>% filter(between(year, 1995, 1997)) %>% as.data.frame()
+slice_precip <- slice_wide %>% select(year, doy, date:manaus)
+```
+
+## Simple test
+
+Here I'm not going to use any time series variables and just do this like ordinary multivariate imputation.
+
+```{r}
+imp_simple <-
+  amelia(
+    slice_precip,
+    idvars = c("date", "doy", "year"),
+    logs = c(
+      "dimona",
+      "porto_alegre",
+      "km_clust",
+      "colosso_clust",
+      "manaus"
+    )
+  )
 plot(imp_simple)
 ```
+red = imputed, blue = observed
+
+## Timeseries imputation
+In previous tests, I had tried doing this with precip as the only variable and site as a cross-section, but it performed poorly.  I think it's better to treat each site as a variable, day of year as the time-series info, and year as the cross-section.  I've added a ridge penalty with the `empri` argument because without it the algorithm has difficulty converging.
 
 ```{r}
-imp_tsdoy <-
+imp_ts1 <-
   amelia(
-    slice_wide,
-    p2s = 1,
+    slice_precip,
+    p2s = 0,
     m = 10,
     ts = "doy",
     cs = "year",
@@ -141,130 +151,407 @@ imp_tsdoy <-
     polytime = 3,
     logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
     idvars = c("date"),
-    empri = .01*nrow(slice_wide) #ridge penalty because of high degree of missingness
+    empri = .01 * nrow(slice_precip) #ridge penalty because of high degree of missingness
   )
-imp_tsdoy
-tscsPlot(imp_tsdoy, cs = "1996", var = "km_clust")
 ```
 
-```{r}
-slice_long <- 
-  slice_wide %>% 
-  pivot_longer(dimona:manaus, names_to = "site", values_to = "precip") %>% 
-  arrange(site, date) %>% 
-  mutate(date_num = as.numeric(date)) %>% as.data.frame()
-
-imp_tsdate <-
-  amelia(
-    slice_long,
-    m = 10,
-    p2s = 1,
-    ts = "date",
-    cs = "site",
-    intercs = TRUE,
-    polytime = 3,
-    logs = c("precip"),
-    idvars = c("year", "doy", "date_num"),
-    empri = .01*nrow(slice_long) #ridge penalty because of high degree of missingness
-  )
-imp_tsdate
-```
-So I've imputed this dataset two ways:
-1. in `imp_tsdoy` using day of year as the time series variable and year as a cross-section with each site as a different variable.
-2. in `imp_tsdate` using date as the time series variable and site as a cross-section with only one variable—precip.
-
-I want to look at their performance to see if one is better
 
 ```{r}
-imp_tsdoy
-```
-The chain lengths for the first method are fairly different, potentially indicating a problem.
-
-```{r}
-imp_tsdate
+imp_ts1
 ```
 
-```{r}
-tscsPlot(imp_tsdoy, cs ="1996", var = "dimona", ylim = c(0,100))
-```
+The chain lengths are fairly even, indicating that the ridge penalty is helping convergence.
+
+## Timeseries with more variables
+
+Here I'll try including other variables from the Manaus weather station to see if it improves the fit.
 
 ```{r}
-as.numeric(ymd("1996-12-31"))
-tscsPlot(imp_tsdate, cs = "dimona", var = "precip", xlim = c(9496, 9861), ylim = c(0,100))
-```
-
-Confidence intervals smaller with date method, but values look weird.  Zeroes seem much less likely for this method.
-
-Let's try adding more variables
-
-```{r}
-slice_wide2 <-
-  full_wide %>% 
-  rename(manaus = precip) %>% 
-  filter(between(date, min(slice_wide$date), max(slice_wide$date))) %>% 
-  as.data.frame()
-
-# hist(slice_wide2$wind_speed)
-
 imp_ts2 <-
   amelia(
-    slice_wide2,
+    slice_wide,
     m = 10,
-    p2s = 1,
+    p2s = 0,
     ts = "doy",
     cs = "year",
     intercs = TRUE,
     polytime = 3,
     logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
     idvars = c("date"),
-    empri = .005*nrow(slice_wide) #ridge penalty because of high degree of missingness
+    empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
   )
 ```
 ```{r}
 imp_ts2
 ```
 
-```{r}
-tscsPlot(imp_tsdoy, cs ="1996", var = "dimona", ylim = c(0,100))
-tscsPlot(imp_ts2, cs ="1996", var = "dimona", ylim = c(0,100))
+## Timeseries with lags and leads
 
-```
-smaller CIs
-
-Let's try adding leads and lags of precip
+Finally, I can try adding lags and leads of some or all variables in addition to the time polynomial. I'm actually not sure which variables I'd expect to be helpful, but for now I'll go with all the mostly continuous ones from Manaus.
 
 ```{r}
 imp_ts3 <-
   amelia(
-    slice_wide2,
+    slice_wide,
     m = 10,
-    p2s = 1,
+    p2s = 0,
     ts = "doy",
     cs = "year",
     intercs = TRUE,
     polytime = 3,
-    leads = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
-    lags = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
+    leads = c("manaus", "piche_evap", "wind_speed"),
+    lags = c("manaus", "piche_evap", "wind_speed"),
     logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
     idvars = c("date"),
-    empri = .005*nrow(slice_wide) #ridge penalty because of high degree of missingness
+    empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
+  )
+```
+
+```{r}
+imp_ts3
+```
+```{r}
+imp_ts4 <-
+  amelia(
+    slice_wide,
+    m = 10,
+    p2s = 0,
+    ts = "doy",
+    cs = "year",
+    intercs = TRUE,
+    polytime = 3,
+    leads = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    lags = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    idvars = c("date"),
+    empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
   )
 ```
 ```{r}
-tscsPlot(imp_tsdoy, cs ="1996", var = "km_clust", ylim = c(0,150))
-tscsPlot(imp_ts2, cs ="1996", var = "km_clust", ylim = c(0,150))
-tscsPlot(imp_ts3, cs ="1996", var = "km_clust", ylim = c(0,150))
+imp_ts4
 ```
 
+# Diagnostics
+
+## Compare distributions
+These plots just compare distributions of observed and imputed data.  Observed = blue, imputed = red
+
 ```{r}
-overimpute(imp_tsdoy, var = "km_clust")
+plot(imp_ts1)
+plot(imp_ts2, which.vars = c("dimona", "porto_alegre", "km_clust", "colosso_clust"))
+plot(imp_ts3, which.vars = c("dimona", "porto_alegre", "km_clust", "colosso_clust"))
+plot(imp_ts4, which.vars = c("dimona", "porto_alegre", "km_clust", "colosso_clust"))
+```
+Huh, here it seems like imputation tends to overestimate precipitation possibly.  It seems odd to me that the greatest mismatch between observed and imputed is in `km_clust` which has the lowest degree of missingness.
+
+## Dispersion test
+
+This diagnostic checks if starting values are likely to effect convergence.  All lines should end up converging at the same place.
+
+```{r}
+disperse(imp_ts1, dims = 1, m = 10)
+disperse(imp_ts2, dims = 1, m = 10)
+disperse(imp_ts3, dims = 1, m = 10)
+disperse(imp_ts4, dims = 1, m = 10)
+```
+
+The models with more variables are not converging quickly, but they are all converging on the same value, so that's good.  It's possible that this won't be a problem once the full data set is used because there will be many more observations.
+
+## Overimputation
+
+This test removes an observation that is known, imputes it, then plots the observed vs. imputed.  A perfect result would be points that follow the line perfectly.  Color represents row-wise missingness. (rows with fewer co-variates probably should perform worse).
+
+```{r}
+overimpute(imp_ts1, var = "dimona")
+overimpute(imp_ts2, var = "dimona")
+overimpute(imp_ts3, var = "dimona")
+overimpute(imp_ts4, var = "dimona")
+```
+
+They actually seem fairly equivalent.  Imputation tends to underestimate actual precip, but 90% confidence intervals mostly overlap line.  I wonder if this is affected by the ridge penalty?
+
+```{r}
+overimpute(imp_ts1, var = "km_clust")
 overimpute(imp_ts2, var = "km_clust")
 overimpute(imp_ts3, var = "km_clust")
-plot(imp_ts3)
+overimpute(imp_ts4, var = "km_clust")
 ```
-Color is row-wise missingness.  Ideal would be on line, that means if you pull out a precip value at, say 100 mm, then it would imput that value as 100mm perfectly every time.
+
+Can't tell, but maybe adding lags helped?
+
+## Timeseries Plots
+
+We can also pick a few year/site combos to compare the 4 methods
 
 ```{r}
-disperse(imp_ts3, dims = 1, m = 10)
+tscsPlot(imp_ts1, cs ="1995", var = "km_clust", ylim = c(0,150))
+tscsPlot(imp_ts2, cs ="1995", var = "km_clust", ylim = c(0,150))
+tscsPlot(imp_ts3, cs ="1995", var = "km_clust", ylim = c(0,150))
+tscsPlot(imp_ts4, cs ="1995", var = "km_clust", ylim = c(0,150))
 ```
-Converges fine.
+```{r}
+tscsPlot(imp_ts1, cs ="1997", var = "dimona", ylim = c(0,150))
+tscsPlot(imp_ts2, cs ="1997", var = "dimona", ylim = c(0,150))
+tscsPlot(imp_ts3, cs ="1997", var = "dimona", ylim = c(0,150))
+tscsPlot(imp_ts4, cs ="1997", var = "dimona", ylim = c(0,150))
+```
+
+```{r}
+tscsPlot(imp_ts1, cs ="1997", var = "colosso_clust", ylim = c(0,150))
+tscsPlot(imp_ts2, cs ="1997", var = "colosso_clust", ylim = c(0,150))
+tscsPlot(imp_ts3, cs ="1997", var = "colosso_clust", ylim = c(0,150))
+tscsPlot(imp_ts4, cs ="1997", var = "colosso_clust", ylim = c(0,150))
+```
+
+It doesn't seem like one of these methods is consistently better than others.
+
+# Parallelization
+
+An advantange of `Amelia` is built-in parallelization.  If that doesn't work, I can easily compute many single imputations with `future_map()` and combine them with `ameliabind()`
+
+```{r}
+library(tictoc)
+library(parallel)
+```
+
+Without parallelization:
+
+```{r}
+tic()
+imp_ts4 <-
+  amelia(
+    slice_wide,
+    m = 10,
+    p2s = 0,
+    ts = "doy",
+    cs = "year",
+    intercs = TRUE,
+    polytime = 3,
+    leads = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    lags = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    idvars = c("date"),
+    empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
+  )
+toc()
+```
+
+about 36 seconds
+
+```{r}
+tic()
+imp_ts4 <-
+  amelia(
+    slice_wide,
+    m = 10,
+    p2s = 0,
+    ts = "doy",
+    cs = "year",
+    intercs = TRUE,
+    polytime = 3,
+    leads = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    lags = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
+    idvars = c("date"),
+    empri = .01 * nrow(slice_wide), #ridge penalty because of high degree of missingness
+    parallel = "multicore",
+    ncpus = detectCores() - 1
+  )
+toc()
+```
+
+11 seconds with 7 cores!
+
+# Accumulations as priors or bounds
+
+The thing I'm really struggling to deal with is accumulated values.  I'd rather not just completely get rid of them as they hold information, but I don't know how many days of rain they represent, especially for larger gaps. `Amelia` allows the user to supply means and standard deviations (or a confidence interval) as priors, or lower and upper bounds for particular observations as a special matrix. 
+
+Example case:
+Let's say there is a gap of 5 days followed by an accumulation
+
+```{r}
+set.seed(112)
+precip <- rpois(30, 10)
+precip[9] <- sum(precip[3:8])
+precip[3:8] <- NA
+precip
+```
+
+Maybe I could use 63/5 as a prior mean and the sd for the whole column as the sd?
+
+I could test this with the Manaus data to see how well it works.
+
+## Introduce accumulations into Manaus data
+
+```{r}
+set.seed(112)
+slice_gaps <- slice_precip
+# pick some starting positions for the gaps
+length(slice_gaps$manaus)
+gap_start <- sample(1:1096, 5)
+
+# draw random gap lengths
+gap_lens <- rpois(5, 8)
+
+for (i in 1:5){
+  slice_gaps$manaus[gap_start[i]+gap_lens[i]+1] <- sum(slice_gaps$manaus[gap_start[i]:(gap_start[i]+gap_lens[i])])
+  slice_gaps$manaus[gap_start[i]:(gap_start[i]+gap_lens[i])] <- NA
+}
+missmap(slice_gaps)
+```
+
+## Make priors matrix
+
+The matrix should have the following columns: row of observation, column of observation, mean, sd
+
+First, find the gaps and accumulations.
+
+```{r}
+slice_gaps <-
+  slice_gaps %>% 
+  mutate(manaus_gaps = is.na(manaus),
+         manaus_accumulation = !is.na(manaus) & is.na(lag(manaus) & date != first(date)))
+```
+
+Now, spread back the accumulated value in a new column to be used for the priors matrix
+
+```{r}
+source(here("R", "utils.R"))
+```
+
+
+```{r}
+slice_gaps <- 
+  slice_gaps %>% 
+  mutate(manaus_back = spread_back(manaus),
+         manaus_back = ifelse(manaus_gaps|manaus_accumulation, manaus_back, NA))
+```
+
+Now add row numbers and filter dataframe down to just what I need
+
+**Should the priors be log-transformed???**
+
+```{r}
+pmat <-
+  slice_gaps %>% 
+  rowid_to_column() %>% 
+  filter(!is.na(manaus_back)) %>% 
+  select(rowid, manaus_back) %>% 
+  add_column(sd = sd(slice_gaps$manaus, na.rm = TRUE),
+             colid = 8) %>% 
+  select(rowid, colid, manaus_back, sd) %>%
+  # mutate(manaus_back = log(manaus_back + 0.01)) %>% 
+  as.matrix()
+```
+
+## Impute with and without priors matrix
+
+I need to prep the dataset first by removing accumulations.
+
+```{r}
+slice_gaps <-
+  slice_gaps %>%
+  mutate(manaus = ifelse(manaus_accumulation, NA, manaus)) %>% 
+  select(-manaus_gaps, -manaus_accumulation, -manaus_back)
+```
+
+
+```{r}
+imp_nopriors <-
+  amelia(
+    slice_gaps,
+    p2s = 0,
+    m = 10,
+    ts = "doy",
+    cs = "year",
+    intercs = TRUE,
+    polytime = 3,
+    # lags = c("manaus"),
+    # leads = c("manaus"),
+    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
+    idvars = c("date"),
+    # priors = pmat,
+    empri = .005 * nrow(slice_precip) #ridge penalty because of high degree of missingness
+  )
+```
+
+
+```{r}
+imp_priors <-
+  amelia(
+    slice_gaps,
+    p2s = 0,
+    m = 10,
+    ts = "doy",
+    cs = "year",
+    intercs = TRUE,
+    polytime = 3,
+    # lags = c("manaus"),
+    # leads = c("manaus"),
+    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
+    idvars = c("date"),
+    priors = pmat,
+    empri = .005 * nrow(slice_precip) #ridge penalty because of high degree of missingness
+  )
+```
+
+```{r}
+imp_nopriors
+imp_priors
+```
+
+
+Let's look at the gaps specifically.
+
+```{r}
+slice <- 105:125
+ggplot(slice_precip %>% slice(slice), aes(x = date, y = manaus)) +
+  geom_line(lty = 2) +
+  # geom_line(data = slice_gaps %>% slice(slice), color = "black") +
+  geom_line(data = imp_nopriors$imputations[[1]] %>% slice(slice), color = "red", alpha = 0.5) +
+  geom_line(data = imp_priors$imputations[[1]] %>% slice(slice), color = "blue", alpha = 0.5)
+```
+
+```{r}
+slice <- 505:530
+ggplot(slice_precip %>% slice(slice), aes(x = date, y = manaus)) +
+  geom_line(lty = 2) +
+  # geom_line(data = slice_gaps %>% slice(slice), color = "black") +
+  geom_line(data = imp_nopriors$imputations[[1]] %>% slice(slice), color = "red", alpha = 0.5) +
+  geom_line(data = imp_priors$imputations[[1]] %>% slice(slice), color = "blue", alpha = 0.5)
+```
+
+```{r}
+slice <- 550:570
+ggplot(slice_precip %>% slice(slice), aes(x = date, y = manaus)) +
+  geom_line(lty = 2) +
+  # geom_line(data = slice_gaps %>% slice(slice), color = "black") +
+  geom_line(data = imp_nopriors$imputations[[1]] %>% slice(slice), color = "red", alpha = 0.5) +
+  geom_line(data = imp_priors$imputations[[1]] %>% slice(slice), color = "blue", alpha = 0.5)
+```
+
+```{r}
+slice <- 868:885
+ggplot(slice_precip %>% slice(slice), aes(x = date, y = manaus)) +
+  geom_line(lty = 2) +
+  # geom_line(data = slice_gaps %>% slice(slice), color = "black") +
+  geom_line(data = imp_nopriors$imputations[[1]] %>% slice(slice), color = "red", alpha = 0.5) +
+  geom_line(data = imp_priors$imputations[[1]] %>% slice(slice), color = "blue", alpha = 0.5)
+```
+
+
+```{r}
+slice <- 1026:1045
+ggplot(slice_precip %>% slice(slice), aes(x = date, y = manaus)) +
+  geom_line(lty = 2) +
+  # geom_line(data = slice_gaps %>% slice(slice), color = "black") +
+  geom_line(data = imp_nopriors$imputations[[1]] %>% slice(slice), color = "red", alpha = 0.5) +
+  geom_line(data = imp_priors$imputations[[1]] %>% slice(slice), color = "blue", alpha = 0.5)
+```
+
+It seems like including priors (blue) is maybe sometimes helping?  It should push estimates up if the gap had a lot of rain and pull them down if the gap had less rain.
+
+## Thoughts on accumulations
+
+Since the reason behind this is to get monthly data, short gaps of a few days are probably safe to just be filled in with the accumulated value, although I wonder if this should be done *after* imputation, as those values are not technically correct and will impact imputation of other sites.  Imputation, possibly using accumulations to make informed priors, will be useful for filling in larger gaps.
+
