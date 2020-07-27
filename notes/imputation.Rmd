@@ -555,3 +555,22 @@ It seems like including priors (blue) is maybe sometimes helping?  It should pus
 
 Since the reason behind this is to get monthly data, short gaps of a few days are probably safe to just be filled in with the accumulated value, although I wonder if this should be done *after* imputation, as those values are not technically correct and will impact imputation of other sites.  Imputation, possibly using accumulations to make informed priors, will be useful for filling in larger gaps.
 
+An idea for "spreading" accumulations out is to optimize the `max_n` argument of `spread_back()` so that the distribution of non-missing and non-accumulated precipiation events matches the distribution of gaps and accumulations.
+
+# Next Steps
+
+## Better testing for priors
+
+I've tested using accumulations as priors in Manaus, but this site is actually not really well related to the BDFFP sites.  I could re-do this using the km-cluster, which is actually pretty complete.
+
+## Spatially explicit imputation
+
+`Ameila` is not spatially explicit.  That is, it does not take distance between sites into account when imputing.  The CRAN Task View on missing data does list some packages for spatio-temporal imputation, but they look less developed than Ameila.
+
+## Incorporating other data sources
+
+I could incorporate other sources of data including the gridded GPCC precipitation data.  However, the GPCC dataset is already aggregated monthly, so I'm not sure if this is a good idea.  Would be good to possibly get other daily data for the region though.
+
+## Calculate SPI with multiple imputations
+
+See how much uncertainty there is for SPI calculations with multiple imputation.  That is, do multiple imputations, calculate SPI, and re-combine.
