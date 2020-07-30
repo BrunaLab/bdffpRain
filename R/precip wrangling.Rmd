@@ -66,6 +66,13 @@ site_raw <- site_raw %>% add_column(time_as_date = time_as_date$HORA)
 sample_n(all_raw, 7)
 ```
 
+Add row numbers to raw data to make data cleaning more reproducible later
+
+```{r}
+all_raw <- all_raw %>% rowid_to_column()
+```
+
+
 ## Data Dictionary
 
 There are 8 sites, each with a .xls spreadsheet with multiple tabs.  Each tab contains data from 3 years and the last two tabs have some aggregated data done in Excel.
@@ -97,8 +104,8 @@ all <-
 all
 
 #fix typo in date column
-all %>% add_rownames() %>% filter(is.na(data) & !is.na(chuva))
-all$data[6646] <- ymd("2000-03-31")
+all %>% filter(is.na(data) & !is.na(chuva))
+all <- all %>% mutate(data = replace(data, rowid == 6646, ymd("2000-03-31")))
 
 #remove missing rows
 all <- all %>% filter(!is.na(data))
@@ -133,7 +140,7 @@ all <-
 
 This shows any problems with dates by checking the data against a sequence from earliest to latest date by day.
 
-- the missing dates in COLOSSO are typos
+- the missing date in COLOSSO is a typo that will get fixed later
 
 ```{r}
 x <- all %>% 
@@ -170,12 +177,26 @@ all %>%
             start = min(data),
             end = max(data))
 ```
+
 A few are (probably) typos,  CABO, DIMONA, and GAVIAO are off by one day for large sections, and I don't know what is going on in PORTO.  This column should be trashed and replaced by `yday(date)`.
 
 ```{r}
 all <-
   all %>% 
   mutate(dia = yday(data))
+```
+
+### Remove any trailing dates
+
+Remove any trailing NAs in the dataset.
+
+```{r}
+all <- 
+  all %>% 
+  group_by(site) %>% 
+  mutate(cum_not_na = cumsum(!is.na(chuva))) %>% 
+  mutate(trail = max(cum_not_na) - cum_not_na <=0 & is.na(chuva)) %>% 
+  filter(!trail)
 ```
 
 
@@ -207,10 +228,11 @@ Check that you got them all by comparing original data read in both ways to new 
 all_2 %>% 
   filter(!is.na(hora) & is.na(time))
 ```
-
-**manually fix these errors??**
+There are maybe a couple of others I could guess at, but I don't think time is going to be an important variable, so this is good enough.
 
 ### Consolidate comments
+
+Combine notes entered into the wrong columns all into the notes column.
 
 ```{r}
 all_clean <-
@@ -227,21 +249,16 @@ Translate column names to English
 ```{r}
 all_clean2 <-
   all_clean %>% 
-  select(site, date = data, doy = dia, time, observer = observador, precip = chuva, notes)
+  select(rowid, site, date = data, doy = dia, time, observer = observador, precip = chuva, notes) %>% 
+  ungroup()
 ```
 ```{r}
-all_clean2 %>% skimr::skim()
+skimr::skim(all_clean2)
 unique(all_clean2$notes)
 ```
 
 
 # Check for problems
-
-add rownumbers to facilitate manual data fixing
-
-```{r}
-all_clean2 <- all_clean2 %>% add_rownames()
-```
 
 ## Problems in precip
 
@@ -251,7 +268,9 @@ The value for DIMONA 2005-02-22 is not correct.  It got converted to a date by E
 all_clean2 %>% filter(precip < 0)
 all_clean2 %>% filter(precip > 500)
 #typo in Dimona
-all_clean2 <- all_clean2 %>% mutate(precip = replace(precip, rowname == 27450, 53))
+all_clean2 <- 
+  all_clean2 %>% 
+  mutate(precip = replace(precip, rowid == 28040, 53))
 ```
 ## Problems with dates
 
@@ -260,74 +279,111 @@ Check if dates are in order and if any are missing:
 ```{r}
 #Dates not in order
 all_clean2 %>% 
-  add_rownames() %>% 
   group_by(site) %>% 
   filter(date != lag(date) + 1 & !is.na(lag(date)))
 ```
+Duplicated and empty dates
 
-### Just implicit missing data:
-
-```{r, eval=FALSE}
-all_clean2 %>%
-  slice(6512:6515)
-
+```{r}
 all_clean2 %>% 
-  slice(29980:29984)
+  filter(between(rowid, 10700, 10710))
+#duplicated dec 1
 
-all_clean2 %>% 
-  slice(30073:30078)
-
-all_clean2 %>% 
-  slice(30469:30473)
-
-all_clean2 %>% 
-  slice(36710:36715)
-
-all_clean2 %>% 
-  slice(38200:38206)
+all_clean2 <- all_clean2 %>% filter(rowid != 10703)
 ```
+
+### Legitimate gaps in data
+Cabo Frio
+
+```{r}
+#11689
+all_clean2 %>% 
+  filter(between(rowid, 11687, 11692))
+```
+
+Florestal
+
+```{r}
+#30573
+all_clean2 %>% 
+  filter(between(rowid, 30570, 30578))
+# Years entered backwards, but ok
+
+#30669	
+all_clean2 %>% 
+  filter(between(rowid, 30665, 30673))
+
+#31065
+all_clean2 %>% 
+  filter(between(rowid, 31062, 31070))
+```
+
+Gaviao
+
+```{r}
+#37498
+all_clean2 %>% 
+  filter(between(rowid, 37495, 37501))
+```
+
+Porto Alegre
+```{r}
+#39003
+all_clean2 %>% 
+  filter(between(rowid, 39000, 39006))
+
+```
+
+
 
 ### Typos That need fixing
 
 Typos in date
 
+Colosso
 ```{r}
+#12826
 all_clean2 %>% 
-  slice(12572:12576)
+  filter(between(rowid, 12824, 12830))
+```
 
+Gaviao
+```{r}
+#32907
 all_clean2 %>% 
-  slice(32249:32253)
+  filter(between(rowid, 32904, 32910))
+```
 
+Porto Alegre
+```{r}
+#39430
 all_clean2 %>% 
-  slice(39059:39066)
+  filter(between(rowid, 39427, 39433))
+# should be 1992-10-20
 
+#39889
 all_clean2 %>% 
-  slice(38617:38622)
+  filter(between(rowid, 39886, 39892))
+# typo. 39889 should be 1994-01-05
+# 39891 should be 1994-01-07
+```
 
-typos <- c("12574" = ymd("1988-10-01"),
-           "32252" = ymd("1992-10-14"),
-           "39062" = ymd("1994-01-05"),
-           "39064" = ymd("1994-01-07"),
-           "38620" = ymd("1992-10-20"))
+```{r}
+typos <- c("12826" = ymd("1988-10-01"),
+           "32907" = ymd("1992-10-14"),
+           "39430" = ymd("1992-10-20"),
+           "39889" = ymd("1994-01-05"),
+           "39891" = ymd("1994-01-07"))
 
 all_clean2 <- 
   all_clean2 %>% 
-  mutate(date = replace(date, rowname %in% as.numeric(names(typos)), typos))
+  mutate(date = replace(date, rowid %in% as.numeric(names(typos)), typos))
 ```
 
-Duplicated and empty dates
-
-```{r}
-all_clean2 %>% 
-  slice(10530:10536)
-#duplicated dec 1
-
-all_clean2 <- all_clean2 %>% filter(rowname != 10533)
-```
 
 ## Duplicated dates
 
-These must be dealt with somehow
+There shouldn't be any duplicates at this point.
 
 ```{r}
 duplicates(all_clean2, key = site, index = date)
@@ -378,6 +434,6 @@ all_clean2 <-
 
 ```{r}
 #remove rowname
-out <- all_clean2 %>% select(-rowname)
+out <- all_clean2 %>% select(-rowid)
 write_csv(out, here("data_cleaned", "daily_precip.csv"))
 ```
