@@ -20,6 +20,7 @@ library(tsibble)
 library(lubridate)
 library(janitor)
 library(Amelia)
+library(parallel)
 
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
@@ -85,6 +86,8 @@ missmap(bdffp_test)
 
 ## Add Manaus data
 
+
+
 ```{r}
 manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
 ```
@@ -99,6 +102,15 @@ full_wide <-
   select(year, doy, everything()) %>%
   select(-temp_max, -temp_min, -sun_time)
 ```
+
+Because BDFFP precip data is generally read at 7am, I'd expect it to be out of phase from Manaus by about a day.
+
+```{r}
+cor(full_wide$manaus, full_wide$km_clust, method = "spearman", use = "pairwise.complete.obs")
+cor(full_wide$manaus, lag(full_wide$km_clust), method = "spearman", use = "pairwise.complete.obs")
+```
+
+Nope, seems like it's fine the way it is.  There is a much weaker correlation if I offset by a day.
 
 ## Add other data sources?
 
@@ -130,7 +142,9 @@ imp_simple <-
       "km_clust",
       "colosso_clust",
       "manaus"
-    )
+    ),
+    parallel = "multicore",
+    ncpus = detectCores() - 1
   )
 plot(imp_simple)
 ```
@@ -151,7 +165,9 @@ imp_ts1 <-
     polytime = 3,
     logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
     idvars = c("date"),
-    empri = .01 * nrow(slice_precip) #ridge penalty because of high degree of missingness
+    empri = .01 * nrow(slice_precip), #ridge penalty because of high degree of missingness
+    parallel = "multicore",
+    ncpus = detectCores() - 1
   )
 ```
 
@@ -178,7 +194,9 @@ imp_ts2 <-
     polytime = 3,
     logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
     idvars = c("date"),
-    empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
+    empri = .01 * nrow(slice_wide), #ridge penalty because of high degree of missingness
+    parallel = "multicore",
+    ncpus = detectCores() - 1
   )
 ```
 ```{r}
@@ -203,7 +221,9 @@ imp_ts3 <-
     lags = c("manaus", "piche_evap", "wind_speed"),
     logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
     idvars = c("date"),
-    empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
+    empri = .01 * nrow(slice_wide), #ridge penalty because of high degree of missingness
+    parallel = "multicore",
+    ncpus = detectCores() - 1
   )
 ```
 
@@ -224,7 +244,9 @@ imp_ts4 <-
     lags = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
     logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
     idvars = c("date"),
-    empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
+    empri = .01 * nrow(slice_wide), #ridge penalty because of high degree of missingness
+    parallel = "multicore",
+    ncpus = detectCores() - 1
   )
 ```
 ```{r}
@@ -305,62 +327,6 @@ tscsPlot(imp_ts4, cs ="1997", var = "colosso_clust", ylim = c(0,150))
 
 It doesn't seem like one of these methods is consistently better than others.
 
-# Parallelization
-
-An advantange of `Amelia` is built-in parallelization.  If that doesn't work, I can easily compute many single imputations with `future_map()` and combine them with `ameliabind()`
-
-```{r}
-library(tictoc)
-library(parallel)
-```
-
-Without parallelization:
-
-```{r}
-tic()
-imp_ts4 <-
-  amelia(
-    slice_wide,
-    m = 10,
-    p2s = 0,
-    ts = "doy",
-    cs = "year",
-    intercs = TRUE,
-    polytime = 3,
-    leads = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
-    lags = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
-    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
-    idvars = c("date"),
-    empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
-  )
-toc()
-```
-
-about 36 seconds
-
-```{r}
-tic()
-imp_ts4 <-
-  amelia(
-    slice_wide,
-    m = 10,
-    p2s = 0,
-    ts = "doy",
-    cs = "year",
-    intercs = TRUE,
-    polytime = 3,
-    leads = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
-    lags = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
-    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus", "piche_evap", "wind_speed"),
-    idvars = c("date"),
-    empri = .01 * nrow(slice_wide), #ridge penalty because of high degree of missingness
-    parallel = "multicore",
-    ncpus = detectCores() - 1
-  )
-toc()
-```
-
-11 seconds with 7 cores!
 
 # Accumulations as priors or bounds
 
@@ -423,7 +389,7 @@ source(here("R", "utils.R"))
 ```{r}
 slice_gaps <- 
   slice_gaps %>% 
-  mutate(manaus_back = spread_back(manaus),
+  mutate(manaus_back = spread_back(manaus, max_n = 15),
          manaus_back = ifelse(manaus_gaps|manaus_accumulation, manaus_back, NA))
 ```
 
@@ -471,7 +437,9 @@ imp_nopriors <-
     logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
     idvars = c("date"),
     # priors = pmat,
-    empri = .005 * nrow(slice_precip) #ridge penalty because of high degree of missingness
+    empri = .005 * nrow(slice_precip), #ridge penalty because of high degree of missingness
+    parallel = "multicore",
+    ncpus = detectCores() - 1
   )
 ```
 
@@ -491,7 +459,9 @@ imp_priors <-
     logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
     idvars = c("date"),
     priors = pmat,
-    empri = .005 * nrow(slice_precip) #ridge penalty because of high degree of missingness
+    empri = .005 * nrow(slice_precip), #ridge penalty because of high degree of missingness
+    parallel = "multicore",
+    ncpus = detectCores() - 1
   )
 ```
 
@@ -563,14 +533,18 @@ An idea for "spreading" accumulations out is to optimize the `max_n` argument of
 
 I've tested using accumulations as priors in Manaus, but this site is actually not really well related to the BDFFP sites.  I could re-do this using the km-cluster, which is actually pretty complete.
 
-## Spatially explicit imputation
+## Spatially explicit imputation??
 
 `Ameila` is not spatially explicit.  That is, it does not take distance between sites into account when imputing.  The CRAN Task View on missing data does list some packages for spatio-temporal imputation, but they look less developed than Ameila.
 
-## Incorporating other data sources
+## Incorporating other data sources??
 
 I could incorporate other sources of data including the gridded GPCC precipitation data.  However, the GPCC dataset is already aggregated monthly, so I'm not sure if this is a good idea.  Would be good to possibly get other daily data for the region though.
 
 ## Calculate SPI with multiple imputations
 
 See how much uncertainty there is for SPI calculations with multiple imputation.  That is, do multiple imputations, calculate SPI, and re-combine.
+
+## Scale up
+
+So far, I've only run the `Amelia` diagnostics on imputation from a small slice of the precip data.  I should run it on the full dataset and see how it performs.
