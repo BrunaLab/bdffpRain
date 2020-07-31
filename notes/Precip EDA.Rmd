@@ -17,7 +17,6 @@ library(tidyverse)
 library(skimr)
 library(here)
 library(conflicted)
-library(plotly)
 library(lubridate)
 library(tsibble)
 library(corrr)
@@ -82,9 +81,9 @@ Mark possible untagged accumulations as any un-flagged precip value after one or
 ```{r}
 bdffp <- bdffp %>% 
   mutate(gaptype = case_when(
-    flag == "accumulated" ~ "accumulated",
-    !is.na(precip) & is.na(lag(precip)) ~ "untagged",
-    !is.na(precip) & !is.na(lag(precip)) ~ "ordinary"
+    flag == "A" ~ "accumulated",
+    flag == "U" ~ "untagged",
+    !is.na(precip) & !flag %in% c("A", "U") ~ "ordinary"
   ))
 
 ```
@@ -167,7 +166,7 @@ bdffp %>%
 ggsave("distribution of NAs.png")
 ```
 
-NAs are more common the the dry season in at least some sites indicating that some of those NAs are probably actually zeroes.
+NAs are maybe *slightly* more common the the dry season in at least some sites indicating that some of those NAs are probably actually zeroes.
 
 km41 is the best data
 

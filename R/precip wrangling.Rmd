@@ -136,6 +136,17 @@ all <-
 
 ## Quality Control
 
+### Explicit NAs entered as 0
+
+Some observations have 0 entered for precip, but "nao foi feita observ" (no observation made) entered in notes.
+
+```{r}
+# all %>% filter(comentario == "nao foi feita observ")
+all <-
+  all %>% 
+  mutate(chuva = replace(chuva, str_detect(comentario, "nao foi feita observ"), NA))
+```
+
 ### Check that there are no missing dates
 
 This shows any problems with dates by checking the data against a sequence from earliest to latest date by day.
@@ -186,7 +197,7 @@ all <-
   mutate(dia = yday(data))
 ```
 
-### Remove any trailing dates
+### Leading and Trailing NAs
 
 Remove any trailing NAs in the dataset.
 
@@ -196,7 +207,9 @@ all <-
   group_by(site) %>% 
   mutate(cum_not_na = cumsum(!is.na(chuva))) %>% 
   mutate(trail = max(cum_not_na) - cum_not_na <=0 & is.na(chuva)) %>% 
-  filter(!trail)
+  filter(!trail) %>% 
+  #leading NAs:
+  filter(cum_not_na > 0)
 ```
 
 
@@ -389,44 +402,59 @@ There shouldn't be any duplicates at this point.
 duplicates(all_clean2, key = site, index = date)
 ```
 
-# Flags and notes
+# Flags
 
 I think it would be useful to create a `flag` column using the information in the notes.  I should research if there are some standards for how to do this already (like, what letters to use).  There are also some notes that relate to data directly possibly.
-
-## Creating flags
 
 Flags:
 
 - `A`: tagged accumulation
+- `U`: possible untagged accumulations
 - `E`: data error
 - `T`: trace precipitation
+
+## Flags from notes
+Pull info from notes to flag data
 
 ```{r}
 notes <- all_clean2$notes %>% unique()
 notes
 ```
+
+## Untagged accumulations
+Using the data, find possible untagged accumulations as data points that:
+
+- Are larger than 0
+- Follow a gap (`NA`s)
+- Are not the first record at a site
+
 ```{r}
-all_clean2 <- 
-  all_clean2 %>% 
-  mutate(flag = case_when(
-    str_detect(notes, "(A|a|Á)c{1,2}umu") ~ "accumulated",
-    str_detect(notes, "(P|p)luviometro no ch") ~ "error",
-    str_detect(notes, "errada") ~ "error",
-    str_detect(notes, "chuva noite<0,1") ~ "trace",
-    TRUE ~ NA_character_
-  ))
+all_clean2 %>% 
+  group_by(site) %>% 
+  filter(rowid == first(rowid))
+all_clean2 %>% 
+  group_by(site) %>% 
+  filter(precip > 0 & is.na(lag(precip)) & is.na(flag) & rowid != first(rowid))
 ```
 
-
-## Explicit NAs entered as 0
-
-Some observations have 0 entered for precip, but "nao foi feita observ" (no observation made) entered in notes.
+## Create flags
 
 ```{r}
-# all_clean2 %>% filter(notes == "nao foi feita observ")
-all_clean2 <-
+all_flags <- 
   all_clean2 %>% 
-  mutate(precip = replace(precip, str_detect(notes, "nao foi feita observ"), NA))
+  group_by(site) %>% 
+  mutate(flag = case_when(
+    str_detect(notes, "(A|a|Á)c{1,2}umu") ~ "A",
+    str_detect(notes, "(P|p)luviometro no ch") ~ "E",
+    str_detect(notes, "errada") ~ "E",
+    str_detect(notes, "chuva noite<0,1") ~ "T",
+    precip > 0 & is.na(lag(precip)) & rowid != first(rowid) ~ "U",
+    TRUE ~ NA_character_
+  ))
+
+#check that "U" didn't overwrite "A"
+# all_flags %>% filter(flag =="U")
+# all_flags %>% filter(flag == "A")
 ```
 
 
@@ -434,6 +462,6 @@ all_clean2 <-
 
 ```{r}
 #remove rowname
-out <- all_clean2 %>% select(-rowid)
+out <- all_flags %>% select(-rowid)
 write_csv(out, here("data_cleaned", "daily_precip.csv"))
 ```
