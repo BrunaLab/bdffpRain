@@ -1,6 +1,6 @@
 # Heliconia-Drought
  <!-- badges: start -->
-  [![R build status](https://github.com/BrunaLab/Heliconia-Drought/workflows/R-CMD-check/badge.svg)](https://github.com/BrunaLab/Heliconia-Drought/actions)
+  [![run-tests](https://github.com/BrunaLab/Heliconia-Drought/workflows/run-tests/badge.svg)](https://github.com/BrunaLab/Heliconia-Drought/actions)
   <!-- badges: end -->
 This is the Repository for the NSF Heliconia-Drought Project. This is a private repository intended for in-progress work. 
 
