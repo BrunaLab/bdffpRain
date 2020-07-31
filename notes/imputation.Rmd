@@ -47,8 +47,7 @@ I'll remove ALL accumulations for an initial test and impute those values.  `Ame
 ```{r}
 bdffp2 <-
   bdffp %>% 
-  #remove all accumulations
-  mutate(precip = ifelse(is.na(lag(precip)), NA, precip))
+  filter(!flag %in% c("A", "U"))
 ```
 
 ## Make wide
@@ -85,8 +84,6 @@ missmap(bdffp_test)
 ```
 
 ## Add Manaus data
-
-
 
 ```{r}
 manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
@@ -403,8 +400,11 @@ pmat <-
   rowid_to_column() %>% 
   filter(!is.na(manaus_back)) %>% 
   select(rowid, manaus_back) %>% 
-  add_column(sd = sd(slice_gaps$manaus, na.rm = TRUE),
-             colid = 8) %>% 
+  add_column(
+    # sd = sd(slice_gaps$manaus, na.rm = TRUE),
+    sd = 1,
+    colid = 8
+    ) %>% 
   select(rowid, colid, manaus_back, sd) %>%
   # mutate(manaus_back = log(manaus_back + 0.01)) %>% 
   as.matrix()
@@ -423,6 +423,7 @@ slice_gaps <-
 
 
 ```{r}
+set.seed(111)
 imp_nopriors <-
   amelia(
     slice_gaps,
@@ -438,13 +439,14 @@ imp_nopriors <-
     idvars = c("date"),
     # priors = pmat,
     empri = .005 * nrow(slice_precip), #ridge penalty because of high degree of missingness
-    parallel = "multicore",
-    ncpus = detectCores() - 1
+    # parallel = "multicore",
+    # ncpus = detectCores() - 1
   )
 ```
 
 
 ```{r}
+set.seed(111)
 imp_priors <-
   amelia(
     slice_gaps,
@@ -460,8 +462,8 @@ imp_priors <-
     idvars = c("date"),
     priors = pmat,
     empri = .005 * nrow(slice_precip), #ridge penalty because of high degree of missingness
-    parallel = "multicore",
-    ncpus = detectCores() - 1
+    # parallel = "multicore",
+    # ncpus = detectCores() - 1
   )
 ```
 
@@ -519,7 +521,7 @@ ggplot(slice_precip %>% slice(slice), aes(x = date, y = manaus)) +
   geom_line(data = imp_priors$imputations[[1]] %>% slice(slice), color = "blue", alpha = 0.5)
 ```
 
-It seems like including priors (blue) is maybe sometimes helping?  It should push estimates up if the gap had a lot of rain and pull them down if the gap had less rain.
+Because the spread-out values are low, they only pull the predictions toward zero.  This is probably not going to be helpful.
 
 ## Thoughts on accumulations
 
@@ -528,10 +530,6 @@ Since the reason behind this is to get monthly data, short gaps of a few days ar
 An idea for "spreading" accumulations out is to optimize the `max_n` argument of `spread_back()` so that the distribution of non-missing and non-accumulated precipiation events matches the distribution of gaps and accumulations.
 
 # Next Steps
-
-## Better testing for priors
-
-I've tested using accumulations as priors in Manaus, but this site is actually not really well related to the BDFFP sites.  I could re-do this using the km-cluster, which is actually pretty complete.
 
 ## Spatially explicit imputation??
 
