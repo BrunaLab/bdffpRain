@@ -154,13 +154,13 @@ ref_spi %>% as_tibble() %>% count(category, site)
 I'll simply "spread" any observations after NAs backwards by up to 7 days
 
 ```{r}
-bdffp_ts2 <-
-  bdffp_ts %>%
-  group_by(site) %>%
-  mutate(precip = spread_back(precip, max_n = 7))
+# bdffp_ts2 <-
+#   bdffp_ts %>%
+#   group_by(site) %>%
+#   mutate(precip = spread_back(precip, max_n = 7))
 
-#or skip spreading step:
-# bdffp_ts2 <- bdffp_ts
+#or skip spreading step and remove accumulations:
+bdffp_ts2 <- bdffp_ts %>% filter(flag != "accumulation" | is.na(flag))
 ```
 
 How does that affect mean monthly totals?
@@ -313,7 +313,7 @@ all_spi %>%
   select(-yearmonth) %>% 
   correlate(method = "spearman") %>% 
   rearrange(method = "HC") %>% 
-  shave() %>% 
+  # shave() %>% 
   rplot(print_cor = TRUE) +
   theme(axis.text.x = element_text(angle =45, hjust = 1)) +
   scale_color_viridis_c("spearman rho") +
@@ -338,7 +338,7 @@ all_spi%>%
   select(-yearmonth) %>% 
   correlate(method = "spearman") %>% 
   rearrange(method = "HC") %>% 
-  shave() %>% 
+  # shave() %>% 
   rplot(print_cor = TRUE) +
   theme(axis.text.x = element_text(angle =45, hjust = 1)) +
   scale_color_viridis_c("spearman rho") +
