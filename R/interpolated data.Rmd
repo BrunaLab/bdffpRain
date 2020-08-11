@@ -15,6 +15,7 @@ output:
 
 - are grid cells centered on lat-lon values?  If so, I probably need fewer grid cells. ( I think i only need two cells:  2º15'S 60º15'W for Dimona, and 2º15'S 59º45'W for all other sites)
 - Explore usefulness of statistical downscaling of gridded data using the [rainfarmr](https://github.com/jhardenberg/rainfarmr) package
+- Check this dataset: https://psl.noaa.gov/data/gridded/data.south_america_precip.html
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -31,10 +32,10 @@ library(lubridate)
 *Last compiled: `r Sys.Date()`*
 
 # Getting GPCC gridded data
-
+To browse datasets, visit https://psl.noaa.gov/thredds/catalog/Datasets/catalog.html Choose a dataset and get the OPENDAP url.
 Here's how to download 1 year of data for the whole world
 
-Starts at year 1891 goest through 2016
+Starts at year 1891 goes through 2016
 
 ```{r}
 u <- "https://psl.noaa.gov/thredds/dodsC/Datasets/gpcc/full_v2018/precip.mon.total.v2018.nc"
@@ -148,5 +149,65 @@ write_csv(out, here("data_cleaned", "gpcc_mon_tot_0.5x0.5.csv"))
 
 ```{r}
 nc_close(gpcc)
+```
+
+# South America gridded data
+
+Liebmann, Brant, and Dave Allured. “Daily Precipitation Grids for South America.” Bulletin of the American Meteorological Society 86, no. 11 (November 2005): 1567–70. https://doi.org/10.1175/BAMS-86-11-1567.
+
+https://psl.noaa.gov/data/gridded/data.south_america_precip.html
+
+## Download
+
+```{r}
+u <- "ftp://ftp.cdc.noaa.gov/Datasets.other/south_america/sa24.daily.1.1940-2012.nc"
+download.file(u, here("data_raw", "sa24.daily.1.nc"))
+plot(raster(here("data_raw", "sa24.daily.1.nc"), varname = "precip", band = 26000))
+```
+```{r}
+sa <- nc_open(here("data_raw", "sa24.daily.1.nc"))
+```
+```{r}
+names(sa$var)
+names(sa$dim)
+
+lat <- ncvar_get(sa, "lat")
+lon <- ncvar_get(sa, "lon")
+time <- ncvar_get(sa, "time") #"days since 1800-1-1 00:00:00"
+
+time <- as_date(time, origin = ymd("1800-01-01"))
+```
+
+## Just BDFFP
+I want the grid cell centered on -2 lat and -60 lon.  That will encompass all of BDFFP, I think.
+
+```{r}
+lat_min = -2.25
+lat_max = -2.5
+lon_min = -60.167
+lon_max = -59.583
+
+lat_i = which(lat == -2)
+lon_i = which(lon == -60)
+tstart_i <- which(time == ymd("1987-09-01"))
+tend_i <- length(time)
+
+precip <- ncvar_get(sa, "precip",
+                    start = c(lon_i, lat_i, tstart_i), # c(lon, lat, time)
+                    count = c(1, 1, tend_i - tstart_i + 1)  # c(lon, lat, time)
+                    )
+```
+
+## Tidy
+
+```{r}
+dim(precip)
+length(tstart_i:tend_i)
+dimnames(precip) <- list(lat[lat_min_i:lat_max_i], 
+                         as.character(time[tstart_i:tend_i]))
+
+out <- tibble(lat = -2, lon = -60, date = time[tstart_i:tend_i], precip = precip)
+out
+write_csv(out, here("data_cleaned", "sa_daily_1x1.csv"))
 ```
 
