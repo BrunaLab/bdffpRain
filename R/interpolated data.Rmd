@@ -160,8 +160,11 @@ https://psl.noaa.gov/data/gridded/data.south_america_precip.html
 ## Download
 
 ```{r}
-u <- "ftp://ftp.cdc.noaa.gov/Datasets.other/south_america/sa24.daily.1.1940-2012.nc"
-download.file(u, here("data_raw", "sa24.daily.1.nc"))
+if (!file.exists(here("data_raw", "sa24.daily.1.nc"))) {
+  download.file("ftp://ftp.cdc.noaa.gov/Datasets.other/south_america/sa24.daily.1.1940-2012.nc",
+                here("data_raw", "sa24.daily.1.nc"))
+}
+
 plot(raster(here("data_raw", "sa24.daily.1.nc"), varname = "precip", band = 26000))
 ```
 ```{r}
@@ -203,8 +206,6 @@ precip <- ncvar_get(sa, "precip",
 ```{r}
 dim(precip)
 length(tstart_i:tend_i)
-dimnames(precip) <- list(lat[lat_min_i:lat_max_i], 
-                         as.character(time[tstart_i:tend_i]))
 
 out <- tibble(lat = -2, lon = -60, date = time[tstart_i:tend_i], precip = precip)
 out

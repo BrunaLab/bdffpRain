@@ -1,0 +1,244 @@
+---
+title: "SPI with replacement rules"
+author: "Eric R. Scott"
+date: "2020-08-12"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(conflicted)
+library(janitor)
+library(visdat)
+library(tsibble)
+library(SPEI)
+
+conflict_prefer("lag", "dplyr")
+conflict_prefer("filter", "dplyr")
+```
+
+*Last compiled: `r Sys.Date()`*
+
+# Purpose
+
+Generate a continuous daily precip dataset for BDFFP, then aggregate monthly, then use to calculate SPI for each site.
+
+1. First, remove accumulations > 20 mm (arbitrary, but from Liebmann et al 2005)
+2. For each site, fill `NA`s with value from neighboring sites > BDFFP average > gridded data product
+
+
+# Load Data
+
+I'll need the BDFFP cleaned data and the daily gridded data from Liebmann et al.
+
+```{r data, echo=TRUE}
+bdffp <- read_csv(here("data_cleaned", "daily_precip.csv")) %>% arrange(site,date)
+sa <- read_csv(here("data_cleaned", "sa_daily_1x1.csv"))
+manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
+```
+
+
+# Wrangling
+
+## Fill date gaps
+
+```{r}
+bdffp <- bdffp %>% as_tsibble(index = date, key = site) %>% fill_gaps() %>% as_tibble()
+```
+
+## Remove accumulations
+I hate to do it, but I'm just going to toss out accumulated values over 20 mm
+
+```{r}
+bdffp1 <- 
+  bdffp %>% 
+  mutate(precip = ifelse(flag %in% c("U", "A") & precip > 20,
+                         NA,
+                         precip))
+  #spread to wide then add on gridded dataset
+
+```
+
+## Pivot and add columns
+
+Make a wide data frame and add a column for BDFFP average and the gridded data product
+
+```{r}
+bdffp_wide <-
+  bdffp1 %>% 
+  select(site, date, precip) %>% 
+  pivot_wider(names_from = site, values_from = precip) %>% 
+  clean_names() %>% 
+  rowwise() %>% 
+  mutate(bdffp_mean = mean(c(cabo_frio, colosso, dimona, florestal, gaviao, km37, km41, porto_alegre), na.rm = TRUE))
+vis_miss(bdffp_wide)
+```
+
+## First pass: nearby sites
+
+First pass, replace `NA`s with values from near-by sites
+Sites are spatially grouped as follows:
+
+1. dimona
+2. Porto alegre
+3. Colosso, florestal, cabo frio, gaviao
+4. km37, km41
+
+
+
+```{r}
+bdffp_wide1 <-
+  bdffp_wide %>% 
+  rowwise() %>% 
+  mutate(km37_new = ifelse(is.na(km37), km41, km37),
+         km41_new = ifelse(is.na(km41), km37, km41)) %>% 
+  mutate(colosso_new = ifelse(is.na(colosso), mean(c(florestal, cabo_frio, gaviao), na.rm = TRUE), colosso),
+         florestal_new = ifelse(is.na(florestal), mean(c(colosso, cabo_frio, gaviao), na.rm = TRUE), florestal),
+         cabo_frio_new = ifelse(is.na(cabo_frio), mean(c(colosso, florestal, gaviao), na.rm = TRUE), cabo_frio),
+         gaviao_new = ifelse(is.na(gaviao), mean(c(colosso, florestal, cabo_frio), na.rm = TRUE), gaviao)) %>% 
+  select(date,
+         cabo_frio = cabo_frio_new,
+         colosso = colosso_new,
+         dimona,
+         florestal = florestal_new,
+         gaviao = gaviao_new,
+         km37 = km37_new,
+         km41 = km41_new,
+         porto_alegre,
+         bdffp_mean)
+ 
+visdat::vis_miss(bdffp_wide1)
+```
+
+## Second pass, use BDFFP average
+
+```{r}
+bdffp_wide2 <- 
+  bdffp_wide1 %>% 
+  rowwise() %>% 
+  mutate(across(cabo_frio:porto_alegre, ~ ifelse(is.na(.x), bdffp_mean, .x)))
+
+vis_miss(bdffp_wide2)
+```
+
+## Third pass, gridded data
+
+```{r}
+bdffp_wide3 <- 
+  left_join(bdffp_wide2, select(sa, date, sa_grid = precip), by = "date") %>% 
+  rowwise() %>% 
+  mutate(across(cabo_frio:porto_alegre, ~ ifelse(is.na(.x), sa_grid, .x)))
+vis_miss(bdffp_wide3)
+```
+## Four pass, Manaus data
+
+```{r}
+bdffp_wide4 <- 
+  left_join(bdffp_wide3, select(manaus, date, manaus = precip), by = "date") %>% 
+  rowwise() %>% 
+  mutate(across(cabo_frio:porto_alegre, ~ifelse(is.na(.x), manaus, .x)))
+
+vis_miss(bdffp_wide4)
+```
+
+# Aggregate monthly
+
+bdffp_mean and sa_grid contain NAs, so they are just kept for comparison.  Should probably re-calculate site-wide average if I want to actually use those data.
+
+```{r}
+bdffp_mon <-
+  bdffp_wide4 %>% 
+  mutate(yearmonth = tsibble::yearmonth(date)) %>% 
+  group_by(yearmonth) %>% 
+  summarize(across(cabo_frio:manaus, ~sum(.x, na.rm = TRUE)))
+```
+## Remove first and last month
+
+The first and last month aren't complete
+
+```{r}
+bdffp_mon1 <-
+  bdffp_mon %>% 
+  slice(-1, -nrow(bdffp_mon))
+```
+
+
+```{r}
+bdffp_mon1 %>% 
+  pivot_longer(-yearmonth, names_to = "site", values_to = "precip") %>% 
+  mutate(year = year(yearmonth)) %>% 
+  ggplot(aes(x = yearmonth, y = precip, color = site)) +
+  geom_line() +
+  facet_wrap(~year, scales = "free_x")
+```
+
+
+## Calculate SPI
+
+- spi <= -2.0 ~ "extreme",
+- -2.0 < spi <= -1.5  ~ "severe",
+- -1.5 < spi <= -1.0 ~ "moderate",
+- -1.0 < spi <= 0 ~ "mild"
+
+```{r}
+spi_wide <- 
+  bdffp_mon1 %>% 
+  mutate(across(cabo_frio:manaus, ~as.numeric(spi(.x, scale = 3)$fitted))) %>% 
+  filter(complete.cases(.))
+
+spi_wide %>% 
+  pivot_longer(-yearmonth, names_to = "site", values_to = "SPI") %>% 
+  mutate(year = year(yearmonth)) %>% 
+  ggplot(aes(x = yearmonth, y = SPI, color = site)) +
+  geom_line() +
+  geom_hline(aes(yintercept = -2), color = "red") +
+  geom_hline(aes(yintercept = -1.5), color = "darkorange") +
+  geom_hline(aes(yintercept = -1), color = "goldenrod") +
+  facet_wrap(~year, scales = "free_x")
+```
+Fairly often, different sites dip into different drought categories.  `bdffp_mean` was calculated from data with a few NAs (11.68% missingness).  Note how different that makes it from other "sites".
+
+# Save data
+
+## Daily
+```{r}
+daily_replacement <- 
+  bdffp_wide4 %>%
+  select(date:porto_alegre) %>% 
+  pivot_longer(-date, names_to = "site", values_to = "precip") %>% 
+  arrange(site, date)
+```
+
+```{r}
+write_csv(daily_replacement, here("data_cleaned", "daily_replacement.csv"))
+```
+
+## Monthly w/ spi
+
+```{r}
+monthly_long <-
+  bdffp_mon1 %>%
+  select(yearmonth:porto_alegre) %>% 
+  pivot_longer(-yearmonth, names_to = "site", values_to = "precip_tot") %>% 
+  arrange(site, yearmonth)
+
+spi_long <- 
+  spi_wide %>% 
+  select(yearmonth:porto_alegre) %>% 
+  pivot_longer(-yearmonth, names_to = "site", values_to = "spi")
+
+mon_repl <- full_join(monthly_long, spi_long, by = c("yearmonth", "site"))
+```
+
+```{r}
+write_csv(mon_repl, here("data_cleaned", "mon_precip_spi_repl.csv"))
+```
+
