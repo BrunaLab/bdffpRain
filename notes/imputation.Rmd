@@ -28,6 +28,12 @@ conflict_prefer("lag", "dplyr")
 
 *Last compiled: `r Sys.Date()`*
 
+### TODO: 
+
+- Add south america gridded data (daily)
+- Figure out how easy it is to mutiply impute, then calculate SPI, then *combine results*
+- Apply to entire dataset
+
 # Purpose
 
 Explore options for imputation of missing values.  In earlier versions of this document, I explored several options for imputation.  The `mice` package does multiple, multivariate imputation but it performed worse than simple methods like just using the mean.  The `mtsdi` package is for multivariate timeseries data, but it was too slow to be useable and poorly documented.  `Amelia` is well documented, and has functions to work with cross-sectional timeseries data.  It seems flexible, fast, and has built-in diagnostic features.
