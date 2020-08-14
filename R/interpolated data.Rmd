@@ -13,9 +13,7 @@ output:
 
 **TODO:**
 
-- are grid cells centered on lat-lon values?  If so, I probably need fewer grid cells. ( I think i only need two cells:  2º15'S 60º15'W for Dimona, and 2º15'S 59º45'W for all other sites)
 - Explore usefulness of statistical downscaling of gridded data using the [rainfarmr](https://github.com/jhardenberg/rainfarmr) package
-- Check this dataset: https://psl.noaa.gov/data/gridded/data.south_america_precip.html
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -212,6 +210,8 @@ lon_min; lon_max
 lat_min; lat_max
 ```
 
+### Precip
+
 This code filters each file for only the relevant grid cells, then merges them and writes a file `all_precip.nc`
 
 ```{bash}
@@ -222,36 +222,71 @@ cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 prec_daily_UT_Brazil_v2.1_19900101_1
 cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 prec_daily_UT_Brazil_v2.1_20000101_20091231.nc 2000_2009.nc
 cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 prec_daily_UT_Brazil_v2.1_20100101_20151231.nc 2010_2015.nc
 
-cdo mergetime 1980_1989.nc 1990_1999.nc 2000_2009.nc 2010_2015.nc all_precip.nc
-rm 1980_1989.nc 1990_1999.nc 2000_2009.nc 2000_2009.nc 2010_2015.nc
+cdo -O mergetime 1980_1989.nc 1990_1999.nc 2000_2009.nc 2010_2015.nc all_precip.nc
+rm 1980_1989.nc 1990_1999.nc 2000_2009.nc 2010_2015.nc
 ```
 
-### TODO:
+### ETo
 
-- Repeat this with other variables (RH, ET, Temp), then use `cdo merge` to merge files with different variables.
+Repeat with evapotranspirtation
+
+```{bash}
+cd ~/Documents/Heliconia-Drought/data_raw/XavierUT
+
+cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 ETo_daily_UT_Brazil_v2_19800101_19891231.nc 1900_1989.nc
+cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 ETo_daily_UT_Brazil_v2_19900101_19991231.nc 1990_1999.nc
+cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 ETo_daily_UT_Brazil_v2_20000101_20061231.nc 2000_2006.nc
+cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 ETo_daily_UT_Brazil_v2_20070101_20131231.nc 2007_2013.nc
+cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 ETo_daily_UT_Brazil_v2_20140101_20170731.nc 2014_2017.nc
+
+cdo -O mergetime 1900_1989.nc 1990_1999.nc 2000_2006.nc 2007_2013.nc 2014_2017.nc all_eto.nc
+rm 1900_1989.nc 1990_1999.nc 2000_2006.nc 2007_2013.nc 2014_2017.nc
+```
+
+```{bash}
+cd ~/Documents/Heliconia-Drought/data_raw/XavierUT
+
+cdo -O merge all_precip.nc all_eto.nc precip_eto.nc
+```
+```{r}
+# nc_open(here("data_raw", "XavierUT", "precip_eto.nc"))
+```
+
 
 ## Tidy
 
 ```{r}
-xa_precip <- nc_open(here("data_raw", "XavierUT", "all_precip.nc"))
-prec <- ncvar_get(xa_precip, "prec")
-dim(prec)
-time <- ncvar_get(xa_precip, "time") #hours since 1980-01-01 12:00:00
+xa_all <- nc_open(here("data_raw", "XavierUT", "precip_eto.nc"))
+
+time <- ncvar_get(xa_all, "time") #hours since 1980-01-01 12:00:00
 time <- as_date(time/24, origin = ymd("1980-01-01"))
 
-dimnames(prec) <- list(ncvar_get(xa_precip, "longitude"),
+prec <- ncvar_get(xa_all, "prec")
+eto <- ncvar_get(xa_all, "ETo")
+dim(prec)
+
+dimnames(eto) <- dimnames(prec) <- list(ncvar_get(xa_all, "longitude"),
                        as.character(time))
-xa_precip_out <-
+
+xa_precip <-
   t(prec) %>% #gotta do this because dates aren't unique and can't be colnames
   as_tibble(rownames = "date") %>% 
-  pivot_longer(-date, names_to = "lon", values_to = "precip") %>% 
-  add_column(lat = ncvar_get(xa_precip, "latitude")) %>% 
+  pivot_longer(-date, names_to = "lon", values_to = "precip") 
+
+xa_eto <-
+  t(eto) %>% #gotta do this because dates aren't unique and can't be colnames
+  as_tibble(rownames = "date") %>% 
+  pivot_longer(-date, names_to = "lon", values_to = "eto")
+
+xa_clim <-
+  full_join(xa_precip, xa_eto, by = c("date", "lon")) %>% 
+  add_column(lat = ncvar_get(xa_all, "latitude")) %>% 
   mutate(date = ymd(date), lon = as.numeric(lon)) %>% 
-  select(date, lat, lon, precip)
+  select(date, lat, lon, precip, eto)
 ```
 
 ```{r}
-write_csv(xa_precip_out, here("data_cleaned", "xavier_daily_precip_0.25x0.25.csv"))
+write_csv(xa_clim, here("data_cleaned", "xavier_daily_0.25x0.25.csv"))
 ```
 
 
