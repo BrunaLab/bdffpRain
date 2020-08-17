@@ -21,7 +21,8 @@ library(lubridate)
 library(janitor)
 library(Amelia)
 library(parallel)
-
+library(furrr)
+future::plan("multisession")
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 ```
@@ -31,8 +32,9 @@ conflict_prefer("lag", "dplyr")
 
 # TODO:
 
-- Figure out how easy it is to mutiply impute, then calculate SPI, then *combine results*
+- Add additional weather data (ETo)
 - Apply to entire dataset
+
 
 # Purpose
 
@@ -45,7 +47,7 @@ Because of the high degree of missingness in the BDFFP data, I'll combine a few 
 ```{r data, echo=TRUE}
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
 sa <- read_csv(here("data_cleaned", "sa_daily_1x1.csv"))
-xa <- read_csv(here("data_cleaned", "xavier_daily_precip_0.25x0.25.csv"))
+xa <- read_csv(here("data_cleaned", "xavier_daily_0.25x0.25.csv"))
 manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
 min(bdffp$date)
 ```
@@ -82,7 +84,7 @@ bdffp_wide <-
 xa_wide <-
   xa %>% 
   mutate(xa_latlon = paste(lat, lon, sep = ", "), lat = NULL, lon = NULL) %>% 
-  pivot_wider(names_from = xa_latlon, values_from = precip) %>%
+  pivot_wider(names_from = xa_latlon, values_from = c(precip, eto)) %>%
   clean_names()
 ```
 
@@ -99,7 +101,6 @@ full_wide <-
   select(-temp_max, -temp_min, -sun_time)
 ```
 
-Because BDFFP precip data is generally read at 7am, I'd expect it to be out of phase from Manaus by about a day.
 
 ## Site Clusters
 
@@ -139,21 +140,37 @@ slice_precip <- slice_wide %>% select(year, doy, date:manaus, colosso_clust, km_
 Only include sites at BDFFP and manaus station.  No lags or leads.
 
 ```{r}
+set.seed(123)
+
+imp_ts1 <- 
+  future_map(1:10, ~{
+    amelia(
+      slice_precip,
+      p2s = 0,
+      m = 1,
+      ts = "doy",
+      cs = "year",
+      intercs = TRUE,
+      polytime = 3,
+      logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
+      idvars = c("date"),
+      empri = .01 * nrow(slice_precip) #ridge penalty because of high degree of missingness
+    )
+  })
+
 imp_ts1 <-
-  amelia(
-    slice_precip,
-    p2s = 0,
-    m = 10,
-    ts = "doy",
-    cs = "year",
-    intercs = TRUE,
-    polytime = 3,
-    logs = c("dimona", "porto_alegre", "km_clust", "colosso_clust", "manaus"),
-    idvars = c("date"),
-    empri = .01 * nrow(slice_precip), #ridge penalty because of high degree of missingness
-    parallel = "multicore",
-    ncpus = detectCores() - 1
-  )
+  ameliabind(
+  imp_ts1[[1]],
+  imp_ts1[[2]],
+  imp_ts1[[3]],
+  imp_ts1[[4]],
+  imp_ts1[[5]],
+  imp_ts1[[6]],
+  imp_ts1[[7]],
+  imp_ts1[[8]],
+  imp_ts1[[9]],
+  imp_ts1[[10]]
+)
 ```
 
 
@@ -168,51 +185,89 @@ The chain lengths are fairly even, indicating that the ridge penalty is helping 
 Now including all the variables.
 
 ```{r}
+# hist(slice_wide$eto_2_375_59_625)
+# hist(slice_wide$eto_2_375_59_625 %>% log())
+# hist(slice_wide$eto_2_375_59_625 %>% sqrt())
+
+
 all_cols <- colnames(select(slice_wide, -year, -doy, -date))
 
-#variables with log-normal-ish distributions
-log_cols <- all_cols[!all_cols %in% c("rh", "temp_mean")]
+#eto normality improved by sqrt
+sqrt_cols <- colnames(slice_wide %>% select(starts_with("eto_")))
 
+#variables with log-normal-ish distributions
+log_cols <- all_cols[!all_cols %in% c("rh", "temp_mean", sqrt_cols)]
+
+set.seed(123)
 imp_ts2 <-
-  amelia(
-    slice_wide,
-    m = 10,
-    p2s = 0,
-    ts = "doy",
-    cs = "year",
-    intercs = TRUE,
-    polytime = 3,
-    logs = log_cols,
-    idvars = c("date"),
-    empri = .01 * nrow(slice_wide), #ridge penalty because of high degree of missingness
-    parallel = "multicore",
-    ncpus = detectCores() - 1
-  )
+  future_map(1:10, ~{
+    amelia(
+      slice_wide,
+      m = 1,
+      p2s = 0,
+      ts = "doy",
+      cs = "year",
+      intercs = TRUE,
+      polytime = 3,
+      logs = log_cols,
+      sqrts = sqrt_cols,
+      idvars = c("date"),
+      empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
+    )
+  })
+imp_ts2 <- ameliabind(
+  imp_ts2[[1]],
+  imp_ts2[[2]],
+  imp_ts2[[3]],
+  imp_ts2[[4]],
+  imp_ts2[[5]],
+  imp_ts2[[6]],
+  imp_ts2[[7]],
+  imp_ts2[[8]],
+  imp_ts2[[9]],
+  imp_ts2[[10]]
+) 
 ```
 ```{r}
 imp_ts2
 ```
 
 ## Add lags and leads
+Of only ETo?
+
 
 ```{r}
+set.seed(123)
 imp_ts3 <-
-  amelia(
-    slice_wide,
-    m = 10,
-    p2s = 0,
-    ts = "doy",
-    cs = "year",
-    intercs = TRUE,
-    polytime = 3,
-    leads = all_cols,
-    lags = all_cols,
-    logs = log_cols,
-    idvars = c("date"),
-    empri = .01 * nrow(slice_wide), #ridge penalty because of high degree of missingness
-    parallel = "multicore",
-    ncpus = detectCores() - 1
-  )
+  future_map(1:10, ~{
+    amelia(
+      slice_wide,
+      m = 1,
+      p2s = 0,
+      ts = "doy",
+      cs = "year",
+      intercs = TRUE,
+      polytime = 3,
+      leads = sqrt_cols,
+      lags = sqrt_cols,
+      logs = log_cols,
+      sqrts = sqrt_cols,
+      idvars = c("date"),
+      empri = .01 * nrow(slice_wide) #ridge penalty because of high degree of missingness
+    )
+  })
+imp_ts3 <- ameliabind(
+  imp_ts3[[1]],
+  imp_ts3[[2]],
+  imp_ts3[[3]],
+  imp_ts3[[4]],
+  imp_ts3[[5]],
+  imp_ts3[[6]],
+  imp_ts3[[7]],
+  imp_ts3[[8]],
+  imp_ts3[[9]],
+  imp_ts3[[10]]
+) 
 ```
 ```{r}
 imp_ts3
@@ -235,8 +290,8 @@ Huh, here it seems like imputation tends to overestimate precipitation possibly.
 This diagnostic checks if starting values are likely to effect convergence.  All lines should end up converging at the same place.
 
 ```{r}
-disperse(imp_ts1, dims = 1, m = 10)
-disperse(imp_ts2, dims = 1, m = 10)
+# disperse(imp_ts1, dims = 1, m = 10)
+# disperse(imp_ts2, dims = 1, m = 10)
 disperse(imp_ts3, dims = 1, m = 10)
 ```
 
@@ -376,17 +431,44 @@ repl2 <-
 ```{r}
 spi_rules_plot <- 
   ggplot(repl2, aes(x = date, y = spi)) +
-  geom_rect(aes(xmin = min(date), xmax = max(date), ymin = -4.2, ymax = -2), fill = "red", alpha = 0.01) +
-  geom_rect(aes(xmin = min(date), xmax = max(date), ymin = -2, ymax = -1.5), fill = "darkorange", alpha = 0.01) +
-  geom_rect(aes(xmin = min(date), xmax = max(date), ymin = -1.5, ymax = -1), fill = "orange", alpha = 0.01) +
-  geom_rect(aes(xmin = min(date), xmax = max(date), ymin = -1, ymax = 0), fill = "yellow", alpha = 0.01) +
+  geom_rect(aes(
+    xmin = min(date),
+    xmax = max(date),
+    ymin = -4.2,
+    ymax = -2
+  ), fill = "red", alpha = 0.01) +
+  geom_rect(aes(
+    xmin = min(date),
+    xmax = max(date),
+    ymin = -2,
+    ymax = -1.5
+  ), fill = "darkorange", alpha = 0.01) +
+  geom_rect(aes(
+    xmin = min(date),
+    xmax = max(date),
+    ymin = -1.5,
+    ymax = -1
+  ), fill = "orange", alpha = 0.01) +
+  geom_rect(aes(
+    xmin = min(date),
+    xmax = max(date),
+    ymin = -1,
+    ymax = 0
+  ), fill = "yellow", alpha = 0.01) +
   geom_line(color = "blue") +
-  facet_wrap(~site) +
+  facet_wrap( ~ site) +
   scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
   scale_y_continuous(limits = c(-4.2, 2)) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "SPI calculated from replacement-rule data", y = "SPI", x = "Date", caption = "red = extreme, dark orange = severe, orange = moderate, yellow = mild")
+  labs(
+    title = "SPI calculated from replacement-rule data",
+    y = "SPI",
+    x = "Date",
+    caption = "red = extreme, dark orange = severe, orange = moderate, yellow = mild"
+  )
+
+spi_rules_plot
 ggsave(here("notes", "spi_rules.png"), spi_rules_plot)
 ```
 
@@ -396,11 +478,6 @@ ggsave(here("notes", "spi_rules.png"), spi_rules_plot)
 ## Spatially explicit imputation??
 
 `Ameila` is not spatially explicit.  That is, it does not take distance between sites into account when imputing.  The CRAN Task View on missing data does list some packages for spatio-temporal imputation, but they look less developed than Ameila.
-
-
-## Calculate SPI with multiple imputations
-
-See how much uncertainty there is for SPI calculations with multiple imputation.  That is, do multiple imputations, calculate SPI, and re-combine.
 
 ## Scale up
 
