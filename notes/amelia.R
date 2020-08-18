@@ -6,7 +6,6 @@ library(parallel)
 library(janitor)
 library(tsibble)
 library(lubridate)
-library(tictoc)
 conflict_prefer("filter", "dplyr")
 
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
@@ -62,12 +61,12 @@ sqrt_cols <- colnames(full_wide %>% select(starts_with("eto_")))
 
 ##variables with log-normal-ish distributions
 log_cols <- all_cols[!all_cols %in% c("rh", "temp_mean", sqrt_cols)]
-tic()
+
 imp <- 
   amelia(
     as.data.frame(full_wide),
     p2s = 0,
-    m = 5,
+    m = 10,
     ts = "doy",
     cs = "year",
     intercs = TRUE,
@@ -75,9 +74,10 @@ imp <-
     logs = log_cols,
     sqrts = sqrt_cols,
     idvars = c("date"),
-    empri = .01 * nrow(precip_wide) #ridge penalty because of high degree of missingness
+    parallel = "multicore",
+    ncpus = detectCores() - 1,
+    empri = .01 * nrow(full_wide) #ridge penalty because of high degree of missingness
   )
-toc()
 
 imp_spi <- 
   map(imp$imputations, ~{
@@ -86,20 +86,40 @@ imp_spi <-
       mutate(yearmonth = tsibble::yearmonth(date)) %>% 
       group_by(yearmonth) %>% 
       summarize(across(-date, ~sum(.x, na.rm = TRUE))) %>% 
-      mutate(across(-yearmonth, ~as.numeric(SPEI::spi(.x, scale = 3)$fitted))) %>%
-      filter(complete.cases(.))
+      mutate(across(-yearmonth, ~as.numeric(SPEI::spi(.x, scale = 3)$fitted), .names = "{col}.spi"))
   }) %>% 
   bind_rows(.id = "imp")
 
 imp_spi_long <-
   imp_spi %>% 
-  pivot_longer(dimona:km_clust, names_to = "site", values_to = "spi") %>% 
-  mutate(date = as_date(yearmonth))
+  pivot_longer(dimona:km_clust.spi, names_to = c("site", "spi"), names_sep = "\\.") %>% 
+  pivot_wider(values_from = value, names_from = spi) %>% 
+  rename(precip = `NA`)
+  
 
-imp_mean <-
+imp_mon_mean <-
   imp_spi_long %>% 
   group_by(yearmonth, site) %>% 
-  summarize(spi_mean = mean(spi)) %>% 
+  summarize(spi = mean(spi),
+            precip = mean(precip)) %>% 
   mutate(date = as_date(yearmonth))
 
-imp_mean
+imp_spi_out <-
+  imp_mon_mean %>% 
+  arrange(site, date) %>% 
+  ungroup() %>% 
+  select(date, site, precip_tot = precip, spi)
+
+write_csv(imp_spi_out, here("data_cleaned", "mon_precip_spi_imputed.csv"))
+
+
+daily_mean <-
+  imp$imputations %>%
+  map(as_tibble) %>% 
+  bind_rows(.id = "imp") %>% 
+  select(imp:km_clust) %>% 
+  pivot_longer(dimona:km_clust, names_to = "site", values_to = "precip") %>% 
+  group_by(site, date) %>% 
+  summarize(precip = mean(precip))
+
+write_csv(daily_mean, here("data_cleaned", "daily_imputed.csv"))
