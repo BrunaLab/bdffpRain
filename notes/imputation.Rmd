@@ -22,9 +22,11 @@ library(janitor)
 library(Amelia)
 library(parallel)
 library(furrr)
-future::plan("multisession")
+
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
+
+future::plan("multisession")
 ```
 
 *Last compiled: `r Sys.Date()`*
@@ -350,6 +352,7 @@ Here's where I need to figure out how to use this data class.  Need to go back t
 ```{r}
 class(imp_ts3)
 names(imp_ts3$imputations)
+# imp_ts3$imputations[[1]]
 ```
 
 
@@ -393,8 +396,8 @@ spi_imp_plot <-
   geom_line(aes(group = imp), alpha = 0.1) +
   geom_line(data = imp_mean, aes(x = date, y = spi_mean), color = "blue") +
   facet_wrap(~site) +
-  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
-  scale_y_continuous(limits = c(-4.2, 2)) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y", expand = c(0,0)) +
+  scale_y_continuous(limits = c(-4.2, 2), expand = c(0,0)) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(title = "SPI calculated from multiply-imputed data", y = "SPI", x = "Date", caption = "Grey lines = individual imputations, blue line = mean, red = extreme, dark orange = severe, orange = moderate, yellow = mild")
@@ -457,8 +460,8 @@ spi_rules_plot <-
   ), fill = "yellow", alpha = 0.01) +
   geom_line(color = "blue") +
   facet_wrap( ~ site) +
-  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
-  scale_y_continuous(limits = c(-4.2, 2)) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y", expand = c(0,0)) +
+  scale_y_continuous(limits = c(-4.2, 2), expand = c(0,0)) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(
@@ -469,7 +472,101 @@ spi_rules_plot <-
   )
 
 spi_rules_plot
+```
+```{r}
 ggsave(here("notes", "spi_rules.png"), spi_rules_plot)
+```
+
+# SPEI
+
+Use ETo from the gridded dataset and combine with precip values to calculate SPEI using `SPEI::spei()`
+
+```{r}
+x <- imp_ts3$imputations[[1]]
+x
+```
+
+## Match sites to ETo grids
+
+We have ETo from 3 0.25º x 0.25º grid cells:
+
+From west to east, 60.125º W, 59.875º W, and 59.625º W
+
+```{r}
+#center points
+sp::dd2dms(c(60.125, 59.875, 59.625))
+
+#range for grid 1
+sp::dd2dms(c(60.125 + 0.25/2, 60.125 - 0.25/2))
+# only dimona
+
+#range for grid 2
+sp::dd2dms(c(59.875 + 0.25/2, 59.875 - 0.25/2))
+
+#Porto Alegre, Colosso cluster
+
+# Range for grid 3
+sp::dd2dms(c(59.625 + 0.25/2, 59.625 - 0.25/2))
+#km cluster
+```
+
+## Climatic balance
+
+Calculate precip - ETo for each site
+
+```{r}
+imp_spei <-
+  map(imp_ts3$imputations, function(x){
+    x2 <-
+      x %>% 
+      mutate(cb_dimona = dimona - eto_2_375_60_125) %>% 
+      mutate(across(.cols = c(porto_alegre, colosso_clust), .fns = ~.x - eto_2_375_59_875, .names = "cb_{col}")) %>% 
+      mutate(cb_km_clust = km_clust - eto_2_375_59_625)
+    x2 %>% 
+      select(date, starts_with("cb_")) %>% 
+      mutate(yearmonth = tsibble::yearmonth(date)) %>% 
+      group_by(yearmonth) %>% 
+      summarize(across(starts_with("cb_"), ~sum(.x, na.rm = TRUE))) %>% 
+      mutate(across(-yearmonth, ~as.numeric(SPEI::spei(.x, scale = 3)$fitted))) %>%
+      filter(complete.cases(.))
+  }) %>% 
+  bind_rows(.id = "imp")
+
+imp_spei_long <-
+  imp_spei %>% 
+  pivot_longer(starts_with("cb_"), names_to = "site", values_to = "spei", names_prefix = "cb_") %>% 
+  mutate(date = as_date(yearmonth))
+
+imp_mean_spei <-
+  imp_spei_long %>% 
+  group_by(yearmonth, site) %>% 
+  summarize(spei_mean = mean(spei)) %>% 
+  mutate(date = as_date(yearmonth))
+
+```
+
+
+## Plot
+
+```{r}
+spei_imp_plot <-
+  ggplot(imp_spei_long, aes(x = date, y = spei)) +
+  geom_rect(aes(xmin = min(date), xmax = max(date), ymin = -4.2, ymax = -2), fill = "red", alpha = 0.01) +
+  geom_rect(aes(xmin = min(date), xmax = max(date), ymin = -2, ymax = -1.5), fill = "darkorange", alpha = 0.01) +
+  geom_rect(aes(xmin = min(date), xmax = max(date), ymin = -1.5, ymax = -1), fill = "orange", alpha = 0.01) +
+  geom_rect(aes(xmin = min(date), xmax = max(date), ymin = -1, ymax = 0), fill = "yellow", alpha = 0.01) +
+  geom_line(aes(group = imp), alpha = 0.1) +
+  geom_line(data = imp_mean_spei, aes(x = date, y = spei_mean), color = "blue") +
+  facet_wrap(~site) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y", expand = c(0,0)) +
+  scale_y_continuous(limits = c(-4.2, 2), expand = c(0,0)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "SPEI calculated from multiply-imputed precip and gridded ETo", y = "SPEI", x = "Date", caption = "Grey lines = individual imputations, blue line = mean, red = extreme, dark orange = severe, orange = moderate, yellow = mild")
+spei_imp_plot
+```
+```{r}
+ggsave(here("notes", "spei_imputed.png"), spei_imp_plot)
 ```
 
 
@@ -482,3 +579,46 @@ ggsave(here("notes", "spi_rules.png"), spi_rules_plot)
 ## Scale up
 
 So far, I've only run the `Amelia` diagnostics on imputation from a small slice of the precip data.  I should run it on the full dataset and see how it performs.
+
+## Tests to make sure SPI calcs are working right
+
+Does my method work the same as supplying a multivariate timeseries to `spi()`?
+
+`?spi()`:
+
+>If it is a (univariate or multivariate) time series then the function cycle will be used to determine the position of each observation within the year (month), allowing the data to start in a month other than January.
+
+
+```{r}
+x <- imp_ts3$imputations[[1]]
+x_mon <-
+  x %>% 
+  select(date, dimona, porto_alegre, colosso_clust, km_clust) %>% 
+  mutate(yearmonth = tsibble::yearmonth(date)) %>% 
+  group_by(yearmonth) %>% 
+  summarize(across(-date, ~sum(.x, na.rm = TRUE))) %>% 
+  slice(-1) #what if data starts not in January?
+
+x_dplyr <-
+  x_mon %>% 
+  mutate(across(-yearmonth, ~as.numeric(SPEI::spi(.x, scale = 3)$fitted)))
+```
+
+Or...
+
+```{r}
+x_ts <-
+  x_mon %>% 
+  as_tsibble(index = yearmonth) %>%
+  as.ts()
+
+x_SPEI <-
+  SPEI::spi(x_ts, scale = 3)$fitted %>%
+  as_tsibble() %>% 
+  pivot_wider(names_from = key, values_from = value) %>% 
+  rename(yearmonth = index)
+
+all_equal(x_dplyr, x_SPEI)
+```
+
+
