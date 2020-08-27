@@ -9,6 +9,9 @@ library(lubridate)
 
 conflict_prefer("filter", "dplyr")
 
+# Note: This script is not currently reproducible because set.seed() doesn't
+# work with amelia() when run in parallel on multiple cores
+# (https://github.com/IQSS/Amelia/issues/21)
 
 # Load Data ---------------------------------------------------------------
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
@@ -60,7 +63,8 @@ full_wide <-
   select(-temp_max, -temp_min, -sun_time)
 
 # Impute missing data -----------------------------------------------------
-
+# runif(1, 1, 1000)
+set.seed(3875)
 all_cols <- colnames(select(full_wide, -year, -doy, -date))
 
 # eto normality improved by sqrt
@@ -179,6 +183,3 @@ imp_spi_out <-
   select(date, site, precip_tot = precip, spi, spei)
 
 write_csv(imp_spi_out, here("data_cleaned", "mon_precip_spi_imputed.csv"))
-
-
-
