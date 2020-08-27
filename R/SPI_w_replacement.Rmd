@@ -27,6 +27,11 @@ conflict_prefer("filter", "dplyr")
 
 *Last compiled: `r Sys.Date()`*
 
+# TODO
+
+- Other options besides mean for replacement with neighboring sites.  See Sanusi et al. 2017.
+- Explore effects of using different gridded data products.
+
 # Purpose
 
 Generate a continuous daily precip dataset for BDFFP, then aggregate monthly, then use to calculate SPI for each site.
