@@ -93,29 +93,32 @@ imp <-
 # SPI and SPEI calculations --------------------------------------------------------
 
 # Calculate SPI and SPEI on each of the imputations, then combine
-
-# Match ETo values to sites and calculate climate balance (precip - ETo)
-
-imp_eto <- map(imp$imputations, ~{
-  .x %>% 
-  mutate(dimona.cb = dimona - eto_2_375_60_125) %>% 
-  mutate(across(.cols = c(porto_alegre, colosso_clust),
-                .fns = ~.x - eto_2_375_59_875, .names = "{col}.cb")) %>% 
-  mutate(km_clust.cb = km_clust - eto_2_375_59_625)
-})
+# TODO: - I don't trust this ET0 value.  It is super different that one calculated using thornthwaite()
+# Regardless, you need ET0 on a monthly basis.  Might be better to just use calculated from manaus data
 
 # Aggregate by month
 imp_mon <-
-  map(imp_eto, ~{
+  map(imp$imputations, ~{
     .x %>% 
       rename_with(~paste0(., ".precip"), c(dimona, porto_alegre, colosso_clust, km_clust)) %>% 
-      select(date, contains(c("dimona", "porto_alegre", "colosso_clust", "km_clust"))) %>% 
+      select(date, ends_with(".precip"), starts_with("eto_")) %>% 
       mutate(yearmonth = tsibble::yearmonth(date)) %>% 
       group_by(yearmonth) %>% 
       summarize(across(-date, ~sum(.x, na.rm = TRUE))) %>% 
       #remove first and last month, as they aren't complete
       slice(-1, -nrow(.))
   })
+# Match ETo values to sites and calculate climate balance (precip - ETo)
+
+imp_mon <-
+  map(imp_mon, ~{
+  .x %>% 
+    mutate(dimona.cb = dimona.precip - eto_2_375_60_125) %>% 
+    mutate(across(c(porto_alegre.precip, colosso_clust.precip),
+                  ~.x - eto_2_375_59_875,
+                  .names = "{str_remove(col, '.precip')}.cb")) %>% 
+    mutate(km_clust.cb = km_clust.precip - eto_2_375_59_625)
+})
 
 # Calculate SPI and SPEI
 
@@ -126,8 +129,9 @@ imp_spei <-
                   ~as.numeric(SPEI::spi(.x, scale = 3)$fitted),
                   .names = "{str_remove(col, '.precip')}.spi")) %>% 
     mutate(across(ends_with(".cb"), ~as.numeric(SPEI::spei(.x, scale = 3)$fitted),
-                  .names = "{str_remove(col, '.cb')}.spei"))
-})
+                  .names = "{str_remove(col, '.cb')}.spei")) %>%
+      select(yearmonth, ends_with(c(".precip", ".spi", ".spei")))
+}) 
 
 
 # Combine multiply imputed SPI and SPEI results by taking mean
