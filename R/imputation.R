@@ -90,47 +90,52 @@ imp <-
     empri = .01 * nrow(full_wide) #ridge penalty because of high degree of missingness
   )
 
-# SPI calculations --------------------------------------------------------
+# SPI and SPEI calculations --------------------------------------------------------
 
-# Calculate SPI on each of the imputations, then combine
-imp_spi <- 
-  map(imp$imputations, ~{
-    .x %>% 
-      select(date, dimona, porto_alegre, colosso_clust, km_clust) %>% 
-      mutate(yearmonth = tsibble::yearmonth(date)) %>% 
-      group_by(yearmonth) %>% 
-      summarize(across(-date, ~sum(.x, na.rm = TRUE))) %>% 
-      mutate(across(-yearmonth, ~as.numeric(SPEI::spi(.x, scale = 3)$fitted),
-                    .names = "{col}.spi"))
-  }) %>% 
-  bind_rows(.id = "imp")
-
-
-# SPEI calculations -------------------------------------------------------
+# Calculate SPI and SPEI on each of the imputations, then combine
 
 # Match ETo values to sites and calculate climate balance (precip - ETo)
 
 imp_eto <- map(imp$imputations, ~{
   .x %>% 
-  mutate(cb_dimona = dimona - eto_2_375_60_125) %>% 
+  mutate(dimona.cb = dimona - eto_2_375_60_125) %>% 
   mutate(across(.cols = c(porto_alegre, colosso_clust),
-                .fns = ~.x - eto_2_375_59_875, .names = "cb_{col}")) %>% 
-  mutate(cb_km_clust = km_clust - eto_2_375_59_625)
+                .fns = ~.x - eto_2_375_59_875, .names = "{col}.cb")) %>% 
+  mutate(km_clust.cb = km_clust - eto_2_375_59_625)
 })
 
-imp_spei <- 
+# Aggregate by month
+imp_mon <-
   map(imp_eto, ~{
     .x %>% 
-      select(date, starts_with("cb_")) %>% 
+      rename_with(~paste0(., ".precip"), c(dimona, porto_alegre, colosso_clust, km_clust)) %>% 
+      select(date, contains(c("dimona", "porto_alegre", "colosso_clust", "km_clust"))) %>% 
       mutate(yearmonth = tsibble::yearmonth(date)) %>% 
       group_by(yearmonth) %>% 
-      summarize(across(starts_with("cb_"), ~sum(.x, na.rm = TRUE))) %>% 
-      mutate(across(-yearmonth, ~as.numeric(SPEI::spei(.x, scale = 3)$fitted),
-                    .names = "{col}.spei")) %>%
-      filter(complete.cases(.))
-  }) %>% 
-  bind_rows(.id = "imp")
+      summarize(across(-date, ~sum(.x, na.rm = TRUE))) %>% 
+      #remove first and last month, as they aren't complete
+      slice(-1, -nrow(.))
+  })
 
+# Calculate SPI and SPEI
+
+imp_spei <-
+  map(imp_mon, ~{
+  .x %>% 
+    mutate(across(ends_with(".precip"),
+                  ~as.numeric(SPEI::spi(.x, scale = 3)$fitted),
+                  .names = "{str_remove(col, '.precip')}.spi")) %>% 
+    mutate(across(ends_with(".cb"), ~as.numeric(SPEI::spei(.x, scale = 3)$fitted),
+                  .names = "{str_remove(col, '.cb')}.spei"))
+})
+
+
+# Combine multiply imputed SPI and SPEI results by taking mean
+mean_spei <- 
+  imp_spei %>%
+  bind_rows(.id = "imp") %>% 
+  group_by(yearmonth) %>% 
+  summarize(across(where(is.numeric), mean))
 
 # Ouput data --------------------------------------------------------------
 
@@ -147,39 +152,15 @@ daily_mean <-
 
 write_csv(daily_mean, here("data_cleaned", "daily_imputed.csv"))
 
-# Combine multiply imputed SPI and SPEI results by taking mean
+# Long version of SPI and SPEI
 
-imp_spi_long <-
-  imp_spi %>% 
-  rename_with(~paste0(., ".precip"), dimona:km_clust) %>% 
-  pivot_longer(dimona.precip:km_clust.spi, names_to = c("site", "var"),
-               names_sep = "\\.") %>% 
-  pivot_wider(values_from = value, names_from = var)
+spei_long <-
+  mean_spei %>% 
+  pivot_longer(-yearmonth, names_to = c("site", "var"), names_sep = "\\.") %>% 
+  filter(var != "cb") %>% 
+  pivot_wider(names_from = var, values_from = value) %>% 
+  mutate(date = as_date(yearmonth)) %>% 
+  select(date, site, precip_tot = precip, spi, spei) %>% 
+  arrange(site, date)
 
-imp_mon_mean <-
-  imp_spi_long %>% 
-  group_by(yearmonth, site) %>% 
-  summarize(spi = mean(spi),
-            precip = mean(precip)) %>% 
-  mutate(date = as_date(yearmonth))
-
-imp_spei_long <-
-  imp_spei %>% 
-    select(imp, yearmonth, ends_with(".spei")) %>% 
-    pivot_longer(ends_with(".spei"), names_to = "site",
-                 names_pattern = "cb_(.+)\\.spei",
-                 values_to = "spei")
-
-imp_mon_mean_spei <- 
-  imp_spei_long %>% 
-  group_by(yearmonth, site) %>% 
-  summarize(spei = mean(spei)) %>% 
-  mutate(date = as_date(yearmonth))
-
-imp_spi_out <-
-  full_join(imp_mon_mean, imp_mon_mean_spei, by = c("yearmonth", "site", "date")) %>% 
-  arrange(site, date) %>% 
-  ungroup() %>% 
-  select(date, site, precip_tot = precip, spi, spei)
-
-write_csv(imp_spi_out, here("data_cleaned", "mon_precip_spi_imputed.csv"))
+write_csv(spei_long, here("data_cleaned", "mon_precip_spi_imputed.csv"))
