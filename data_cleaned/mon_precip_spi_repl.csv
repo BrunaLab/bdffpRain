@@ -1,4 +1,4 @@
-date,site,tot_precip,spi,spei
+date,site,precip_tot,spi,spei
 1987-10-01,cabo_frio,29.46998291015625,NA,NA
 1987-11-01,cabo_frio,40,NA,NA
 1987-12-01,cabo_frio,140.8,-2.3091641157752143,-2.054317600136286

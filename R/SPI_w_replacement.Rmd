@@ -239,7 +239,7 @@ spi_out <-
   filter(var != "cb") %>% 
   pivot_wider(names_from = var) %>% 
   mutate(date = as_date(yearmonth)) %>% 
-  select(date, site, tot_precip = precip, spi, spei) %>% 
+  select(date, site, precip_tot = precip, spi, spei) %>% 
   arrange(site, date)
 ```
 
