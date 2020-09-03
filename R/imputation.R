@@ -63,8 +63,8 @@ full_wide <-
   select(-temp_max, -temp_min, -sun_time)
 
 # Impute missing data -----------------------------------------------------
-# runif(1, 1, 1000)
-set.seed(3875)
+# round(runif(1, 1, 1000))
+set.seed(937)
 all_cols <- colnames(select(full_wide, -year, -doy, -date))
 
 # eto normality improved by sqrt
@@ -138,8 +138,12 @@ imp_spei <-
 mean_spei <- 
   imp_spei %>%
   bind_rows(.id = "imp") %>% 
+  #replace any infinite values with NAs
+  mutate(across(everything(), ~ ifelse(is.infinite(.x), NA, .x))) %>% 
   group_by(yearmonth) %>% 
-  summarize(across(where(is.numeric), mean))
+  summarize(across(where(is.numeric), ~mean(., na.rm = TRUE))) %>% 
+  #replace NaN's with NAs
+  mutate(across(everything(), ~ ifelse(is.nan(.x), NA, .x)))
 
 # Ouput data --------------------------------------------------------------
 
@@ -166,5 +170,9 @@ spei_long <-
   mutate(date = as_date(yearmonth)) %>% 
   select(date, site, precip_tot = precip, spi, spei) %>% 
   arrange(site, date)
+
+#test
+# imp_spei %>% bind_rows(.id = "imp") %>% filter(is.infinite(colosso_clust.spei))
+
 
 write_csv(spei_long, here("data_cleaned", "mon_precip_spi_imputed.csv"))
