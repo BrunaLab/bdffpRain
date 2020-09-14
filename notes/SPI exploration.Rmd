@@ -53,7 +53,9 @@ I'll use the Manaus dataset and aggregate monthly.  I'll convert to timeseries w
 manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
 manaus_ts <- manaus %>% as_tsibble(index = date)
 ```
+
 There are two NAs in the data, which for now I will just ignore when I aggregate.
+
 ```{r}
 which(is.na(manaus_ts$precip))
 ```
@@ -177,7 +179,7 @@ So this sounds like a rolling average, but according to [another source](https:/
 
 This is fewer data points on which to fit a distribution
 
-```{r}
+```{r eval=FALSE}
 #TODO change to be rolling 3-month average but over all years?
 wichita1 <- 
   wichita %>%
@@ -201,14 +203,14 @@ Ok, I'm not understanding something correctly because this results in some negat
 
 Guttman et al. 1999 suggest using a Pearson III distribution instead.  Not sure how to fit that in R yet.  The Pearson III might only be better if the site has a lot of months with 0 rainfall.
 
-```{r}
+```{r eval=FALSE}
 x <- fitdistr(wichita1$sp, densfun = "gamma")
 coef(x)
 ```
 
 >"Once the relationship of probability to precipitation is established from the historic records, the probability of any observed precipitation data point is calculated ..."
 
-```{r}
+```{r eval=FALSE}
 spi_tidy2 <- spi_tidy %>% 
   mutate(precip_p = pgamma(precip, shape = coef(x)[1], rate = coef(x)[2]))
 spi_tidy2
@@ -218,7 +220,7 @@ spi_tidy2
 
 >"...and used along with an estimate of the inverse normal to calculate the precipitation deviation for a normally distributed probability density with a mean of zero and a standard deviation of unity."
 
-```{r}
+```{r eval=FALSE}
 spi_final <-
   spi_tidy2 %>% 
   mutate(spi = qnorm(precip_p))

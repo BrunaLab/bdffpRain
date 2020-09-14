@@ -20,12 +20,18 @@ library(lubridate)
 library(tsibble)
 library(SPEI)
 library(corrr)
+library(naniar)
+
 source(here("R", "utils.R"))
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 ```
 
 *Last compiled: `r Sys.Date()`*
+# TODO:
+
+- check that date range is correct for `bdffp_wide`
+- check missingness of bdffp composite (with and without spreading accumulations back)
 
 # Purpose
 
@@ -141,47 +147,52 @@ ref_spi %>% as_tibble() %>% count(category, site)
 ```
 8-14 extreme drought events in reference data
 
-# Quick and dirty
+# Quick and dirty aggregation
 
-## Deal with accumulations
+## Spread accumulations across month borders
 
 I'll simply "spread" any observations after NAs backwards by up to 7 days
 
 ```{r}
-# bdffp_ts2 <- 
-#   bdffp_ts %>% 
-#   group_by(site) %>% 
+# bdffp_ts2 <-
+#   bdffp_ts %>%
+#   group_by(site) %>%
 #   mutate(precip = spread_back(precip, max_n = 7))
 
-#or skip spreading step:
-bdffp_ts2 <- bdffp_ts
+#or skip spreading step and remove accumulations:
+bdffp_ts2 <- bdffp_ts %>% filter(flag != "accumulation" | is.na(flag))
 ```
 
 How does that affect mean monthly totals?
 
 ```{r}
-bdffp_ts %>% 
+mon_tot_raw <-
+  bdffp_ts %>% 
   index_by(yearmonth = yearmonth(date)) %>% 
   group_by(site) %>% 
   summarize(precip = sum(precip, na.rm = TRUE)) %>% 
-  index_by(month = month(yearmonth, label = TRUE)) %>% 
-  group_by(site) %>% 
-  summarize(mean_precip = mean(precip)) %>% 
-  ggplot(aes(x = month, y = mean_precip, color = site)) + 
-    geom_point()
+  as_tibble()
+
 ```
 ```{r}
-bdffp_ts2 %>% 
+mon_tot_spread <- 
+  bdffp_ts2 %>% 
   index_by(yearmonth = yearmonth(date)) %>% 
   group_by(site) %>% 
   summarize(precip = sum(precip, na.rm = TRUE)) %>% 
-  index_by(month =month(yearmonth, label = TRUE)) %>% 
-  group_by(site) %>% 
-  summarize(mean_precip = mean(precip)) %>% 
-  ggplot(aes(x = month, y = mean_precip, color = site)) + 
-    geom_point()
+  as_tibble()
+  
 ```
-Only slight differences
+
+```{r}
+full_join(mon_tot_raw, mon_tot_spread, by = c("site", "yearmonth")) %>% 
+  mutate(year = year(yearmonth), month = month(yearmonth, label = TRUE)) %>% 
+  group_by(site, year) %>% 
+  summarize(cor = cor(precip.x, precip.y, method = "spearman")) %>% 
+  arrange(cor)
+```
+
+Most of the time it has minimal effects, but in some years/months/sites, spreading accumulations across month borders has a larger effect.
 
 ## Group Sites
 
@@ -194,7 +205,7 @@ bdffp_wide <-
   pivot_wider(names_from = site, values_from = precip)
 bdffp_wide$bdffp <- rowMeans(bdffp_wide[2:9], na.rm = TRUE)
 #replace NaN with zero (note this is WRONG)
-bdffp_wide$bdffp[is.nan(bdffp_wide$bdffp)] <- 0
+# bdffp_wide$bdffp[is.nan(bdffp_wide$bdffp)] <- 0
 ```
 
 Create 2 "cluster" sites that are averages of nearby and geographically distinct sites.
@@ -223,7 +234,14 @@ bdffp_ts3 <-
   as_tsibble(index = date, key = site)
 ```
 
-Just aggregate monthly with na.rm = TRUE and calculate SPI. This is **definitely** wrong!
+## Visualize missingness
+
+```{r}
+vis_miss(bdffp_wide)
+```
+bdffp composite has 0% missing?
+
+Just aggregate monthly with na.rm = TRUE. This is **definitely** wrong!
 
 ```{r}
 bdffp_mon <-
@@ -251,9 +269,9 @@ bdffp_mon <-
   #just replace na's with zeroes.  SUPER WRONG
   mutate(tot_precip = replace_na(tot_precip, 0))
 
-# anyNA(bdffp_mon$tot_precip)
-# any(is.nan(bdffp_mon$tot_precip))
 ```
+
+
 
 Use (incorrectly) aggregated data to calculate SPI at all sites and clusters of sites.
 
@@ -295,11 +313,14 @@ all_spi %>%
   select(-yearmonth) %>% 
   correlate(method = "spearman") %>% 
   rearrange(method = "HC") %>% 
-  shave() %>% 
+  # shave() %>% 
   rplot(print_cor = TRUE) +
   theme(axis.text.x = element_text(angle =45, hjust = 1)) +
-  scale_color_viridis_c("spearman rho")
+  scale_color_viridis_c("spearman rho") +
+  labs(title = "Correlations for monthly SPI values")
 ```
+
+
 km41 is the most complete dataset, and it's in the east part of the site, but has really low correlation with the GPCC grid
 
 porto alegre is most strongly correlated with the across bdffp average, probably just because it has a relatively complete dataset?
@@ -317,34 +338,14 @@ all_spi%>%
   select(-yearmonth) %>% 
   correlate(method = "spearman") %>% 
   rearrange(method = "HC") %>% 
-  shave() %>% 
+  # shave() %>% 
   rplot(print_cor = TRUE) +
   theme(axis.text.x = element_text(angle =45, hjust = 1)) +
-  scale_color_viridis_c("spearman rho")
-  
+  scale_color_viridis_c("spearman rho") +
+  labs(title = "Correlations for monthly SPI categories")
+```
+```{r}
+all_spi %>% count(site, category)
 ```
 
 Looking at drought categories, they are also not well correlated among sites or between individual sites and continuous data.
-
-
-# Imputation
-
-Another possibility is to spread accumulated values for gaps smaller than 3 days (like NOAA), and remove accumulations for larger gaps.  Then, impute all missing values in some way.  I could use the Manaus and/or GPCC data to test different imputation methods by removing values, imputing them, and calculating RMSE.  The [`imputeTestbench`](https://cran.r-project.org/web/packages/imputeTestbench/index.html) package might help with this, although it sounds like it only works with univariate imputation.
-
-Regardless, it seems like it would be helpful to have some test set that I could then use to check the effectiveness of various methods.
-
-
-```{r}
-library(imputeTestbench)
-```
-
-
-```{r}
-class(manaus)
-manaus.ts <- as.ts(manaus_ts %>% select(date, precip))
-aa <- impute_errors(manaus.ts, smps = "mar", blck = 7, blckper = FALSE) #i think this is close to median gap length
-plot_errors(aa)
-```
-
-I think I should consider multivariate imputation treating each site as a variable.  The `mice` package can do this, but doesn't know about time series.  It sounds like the [`mtsdi`](https://cran.r-project.org/web/packages/mtsdi/index.html) package is built for imputation of multivariate time series and draws on information from other sites *and* previous time periods to impute missing values.  There is another package, [`amelia`](https://gking.harvard.edu/amelia) that appears to do something similar.
-
