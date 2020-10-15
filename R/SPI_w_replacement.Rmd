@@ -299,13 +299,13 @@ daily_replacement <-
 ```
 
 ```{r}
-write_csv(daily_replacement, here("data_cleaned", "daily_replacement.csv"))
+write_csv(daily_replacement, here("data_completed", "daily_replacement.csv"))
 ```
 
 ## Monthly w/ SPI & SPEI
 
 
 ```{r}
-write_csv(spi_out, here("data_cleaned", "mon_precip_spi_repl.csv"))
+write_csv(spi_out, here("data_completed", "mon_precip_spi_repl.csv"))
 ```
 

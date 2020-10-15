@@ -17,7 +17,7 @@ conflict_prefer("filter", "dplyr")
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
 sa <- read_csv(here("data_cleaned", "sa_daily_1x1.csv"))
 xa <- read_csv(here("data_cleaned", "xavier_daily_0.25x0.25.csv"))
-manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
+# manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
 
 
 # Prep data for imputation ------------------------------------------------
@@ -158,7 +158,7 @@ daily_mean <-
   group_by(site, date) %>% 
   summarize(precip = mean(precip))
 
-write_csv(daily_mean, here("data_cleaned", "daily_imputed.csv"))
+write_csv(daily_mean, here("data_complete", "daily_imputed.csv"))
 
 # Long version of SPI and SPEI
 
@@ -175,4 +175,4 @@ spei_long <-
 # imp_spei %>% bind_rows(.id = "imp") %>% filter(is.infinite(colosso_clust.spei))
 
 
-write_csv(spei_long, here("data_cleaned", "mon_precip_spi_imputed.csv"))
+write_csv(spei_long, here("data_completed", "mon_precip_spi_imputed.csv"))
