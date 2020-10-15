@@ -46,9 +46,7 @@ I'll need the BDFFP cleaned data and the daily gridded data from Liebmann et al.
 
 ```{r data, echo=TRUE}
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv")) %>% arrange(site,date)
-# sa <- read_csv(here("data_cleaned", "sa_daily_1x1.csv"))
 xa <- read_csv(here("data_cleaned", "xavier_daily_0.25x0.25.csv"))
-manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
 ```
 
 # Wrangling
@@ -185,10 +183,6 @@ vis_miss(select(bdffp_wide3, date:porto_alegre))
 
 First, calculate climate balance by subtracting appropriate ETo
 
-##TODO: Is this right?
-Aggregate ET0 before calculating SPEI
-
-Also not sure how much I trust the eto values in `xa`.
 
 ```{r}
 bdffp_mon <-
@@ -299,13 +293,13 @@ daily_replacement <-
 ```
 
 ```{r}
-write_csv(daily_replacement, here("data_completed", "daily_replacement.csv"))
+write_csv(daily_replacement, here("data_complete", "daily_replacement.csv"))
 ```
 
 ## Monthly w/ SPI & SPEI
 
 
 ```{r}
-write_csv(spi_out, here("data_completed", "mon_precip_spi_repl.csv"))
+write_csv(spi_out, here("data_complete", "mon_precip_spi_repl.csv"))
 ```
 
