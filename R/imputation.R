@@ -17,8 +17,8 @@ conflict_prefer("filter", "dplyr")
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
 sa <- read_csv(here("data_cleaned", "sa_daily_1x1.csv"))
 xa <- read_csv(here("data_cleaned", "xavier_daily_0.25x0.25.csv"))
-# manaus <- read_csv(here("data_cleaned", "manaus_weather.csv"))
-
+manaus <- read_csv(here("data_raw", "embrapa", "Estacao_Manaus_1980-01-01_2016-12-31.csv"))
+rpde <- read_csv(here("data_raw", "embrapa", "Estacao_Rio Preto da Eva_1980-01-01_2016-12-31.csv"))
 
 # Prep data for imputation ------------------------------------------------
 
@@ -38,6 +38,8 @@ bdffp_wide <-
   pivot_wider(names_from = site, values_from = precip) %>% 
   clean_names()
 
+# visdat::vis_miss(bdffp_wide)
+
 # Cluster sites to reduce missingness
 bdffp_wide2 <-
   bdffp_wide %>% 
@@ -47,31 +49,48 @@ bdffp_wide2 <-
   mutate(across(colosso_clust:km_clust, ~ifelse(is.nan(.x), NA, .x))) %>% 
   select(-cabo_frio, -colosso, -florestal, -gaviao, -km37, -km41)
 
-# add additional data
+# Add additional data ------------------------------------------------
 xa_wide <-
   xa %>% 
   mutate(xa_latlon = paste(lat, lon, sep = ", "), lat = NULL, lon = NULL) %>% 
   pivot_wider(names_from = xa_latlon, values_from = c(precip, eto)) %>%
   clean_names()
 
-full_wide <-
-  left_join(bdffp_wide2, rename(manaus, manaus = precip), by = "date") %>%
-  left_join(select(sa, date, sa = precip), by = "date") %>% 
-  left_join(xa_wide, by = "date") %>% 
-  mutate(year = year(date), doy = yday(date)) %>%
-  select(year, doy, everything()) %>%
-  select(-temp_max, -temp_min, -sun_time)
+embrapa <-
+  full_join(
+    rename_with(manaus, ~glue::glue("manaus_{tolower(.)}"), !matches("Data")),
+    rename_with(rpde, ~glue::glue("rpde_{tolower(.)}"), !matches("Data"))
+  ) %>% 
+  rename(date = Data)
+
+sa <-
+  sa %>% 
+  select(date, precip)
+
+joined <-
+  left_join(bdffp_wide2, embrapa, by = "date") %>%
+  left_join(sa, by = "date") %>%
+  left_join(xa_wide, by = "date")
+
+# additional representations of time for Amelia.
+full_wide <- 
+  joined %>% 
+  mutate(year = year(date), doy = yday(date), .before = everything())
 
 # Impute missing data -----------------------------------------------------
 # round(runif(1, 1, 1000))
 set.seed(937)
 all_cols <- colnames(select(full_wide, -year, -doy, -date))
 
-# eto normality improved by sqrt
-sqrt_cols <- colnames(full_wide %>% select(starts_with("eto_")))
+# histograms <-
+#   map(all_cols, ~{
+#     ggplot(full_wide, aes(full_wide[[.x]])) + geom_histogram() + labs(title = .x)
+#   })
+# histograms
 
 # variables with log-normal-ish distributions
-log_cols <- all_cols[!all_cols %in% c("rh", "temp_mean", sqrt_cols)]
+
+log_cols <- all_cols[str_detect(all_cols, "precip") | all_cols %in% c("km_clust", "colosso_clust", "porto_alegre", "dimona")]
 
 imp <- 
   amelia(
@@ -83,7 +102,6 @@ imp <-
     intercs = TRUE,
     polytime = 3,
     logs = log_cols,
-    sqrts = sqrt_cols,
     idvars = c("date"),
     parallel = "multicore",
     ncpus = detectCores() - 1,
@@ -93,8 +111,10 @@ imp <-
 # SPI and SPEI calculations --------------------------------------------------------
 
 # Calculate SPI and SPEI on each of the imputations, then combine
-# TODO: - I don't trust this ET0 value.  It is super different that one calculated using thornthwaite()
-# Regardless, you need ET0 on a monthly basis.  Might be better to just use calculated from manaus data
+# Sources of evapotranspiration data are highly correlated.  I'll use the gridded data because it is higher resolution than the station data
+# full_wide %>% 
+#   select(starts_with("eto"), ends_with("evatotranspiracao")) %>%
+#   cor()
 
 # Aggregate by month
 imp_mon <-
@@ -120,7 +140,8 @@ imp_mon <-
     mutate(km_clust.cb = km_clust.precip - eto_2_375_59_625)
 })
 
-# Calculate SPI and SPEI
+# Calculate SPI3 and SPEI3 (i.e. 3-month window SPI and SPEI)
+# TODO: Tenhumberg et al. recommends using 1-month SPI/SPEI so residuals are not correlated. Consider pros and cons of doing this.
 
 imp_spei <-
   map(imp_mon, ~{
@@ -171,8 +192,4 @@ spei_long <-
   select(date, site, precip_tot = precip, spi, spei) %>% 
   arrange(site, date)
 
-#test
-# imp_spei %>% bind_rows(.id = "imp") %>% filter(is.infinite(colosso_clust.spei))
-
-
-write_csv(spei_long, here("data_completed", "mon_precip_spi_imputed.csv"))
+write_csv(spei_long, here("data_complete", "mon_precip_spi_imputed.csv"))
