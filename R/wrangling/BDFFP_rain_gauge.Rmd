@@ -36,17 +36,17 @@ Reading and wrangling precip data
 The HORA column is sometimes formatted as text and sometimes as time.  Read in both ways and join.
 
 ```{r data, echo=TRUE}
-sites <- list.files(here("data_raw", "rain"))
+sites <- list.files(here("data_raw", "bdffp"))
 names(sites) <- str_remove(sites, "\\..+$")
 
 all_raw <- map_df(sites, ~{
   site <- .x
-  sheets <- excel_sheets(here("data_raw", "rain", site))
+  sheets <- excel_sheets(here("data_raw", "bdffp", site))
   sheets <- sheets[str_detect(sheets, "\\d{4}")]
 
   site_raw <-
     map_df(sheets, ~ read_excel(
-      here("data_raw", "rain", site),
+      here("data_raw", "bdffp", site),
       sheet = .x,
       range = cell_limits(c(3,1), c(NA, 6)),
       col_types = c("date", "numeric", "text", "numeric", "text", "text")
@@ -54,7 +54,7 @@ all_raw <- map_df(sites, ~{
 
 time_as_date <-
   map_df(sheets, ~ suppressWarnings(read_excel(
-    here("data_raw", "rain", site),
+    here("data_raw", "bdffp", site),
     sheet = .x,
     range = cell_limits(c(3,1), c(NA, 6)),
     col_types = c("date", "numeric", "text", "numeric", "date", "text")
