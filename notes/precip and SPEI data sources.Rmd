@@ -1,0 +1,297 @@
+---
+title: "Comparison of precipitation and SPEI from different data sources"
+author: "Eric R. Scott"
+date: "Date Initiated"
+output: 
+  html_notebook: 
+    highlight: kate
+    theme: yeti
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(conflicted)
+library(tsibble)
+
+conflict_prefer("lag", "dplyr")
+conflict_prefer("filter", "dplyr")
+source(here("R", "plotting.R"))
+```
+
+*Last compiled: `r Sys.Date()`*
+
+# Purpose
+
+1. Compare rainfall from daily gridded datasets with (non-missing, non-accumulated) values from rain gauges at BDFFP.
+2. Compare monthly SPEI values calculated with imputed rain gauge data, gridded datasets, and from TRMM and GPM.
+
+# Comparison of daily rainfall data
+
+```{r data, echo=TRUE}
+bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
+imp <- read_csv(here("data_complete", "daily_imputed.csv"))
+sa <- read_csv(here("data_cleaned", "sa_daily_1x1.csv"))
+xa <- read_csv(here("data_cleaned", "xavier_daily_0.25x0.25.csv"))
+manaus <- read_csv(here("data_raw", "embrapa", "Estacao_Manaus_1980-01-01_2016-12-31.csv"))
+rpde <- read_csv(here("data_raw", "embrapa", "Estacao_Rio Preto da Eva_1980-01-01_2016-12-31.csv"))
+```
+
+Raw BDFFP rain gauge data, with accumulations removed
+
+```{r}
+bdffp_wide <-
+  bdffp %>% 
+  filter(flag != "A") %>% 
+  select(site, date, precip) %>% 
+  pivot_wider(names_from = site, values_from = precip) %>% 
+  arrange(date) %>% 
+  rowwise() %>% 
+  mutate(bdffp = mean(c_across(-date), na.rm = TRUE)) %>% 
+  ungroup()
+
+bdffp_ts <-
+  bdffp_wide %>% 
+    as_tsibble(index = date) %>% 
+    fill_gaps()
+```
+Gridded data from south america
+
+```{r}
+sa2 <-
+  sa %>% 
+  #only one grid cell
+  select(date, sa = precip)
+
+daily_sources <- left_join(bdffp_ts, sa2, by = "date")
+```
+
+Gridded data from Xavier et al.
+
+```{r}
+xa_wide <- 
+  xa %>% 
+  unite(latlon, lat, lon, sep = ", ") %>% 
+  select(date, latlon, precip) %>% 
+  pivot_wider(names_from = latlon, names_prefix = "xa_", values_from = precip) %>% 
+  rowwise() %>% 
+  mutate(xa = mean(c_across(-date), na.rm = TRUE)) %>% 
+  ungroup()
+
+daily_sources2 <- left_join(daily_sources, xa_wide, by = "date")
+```
+
+Weather stations
+
+```{r}
+stations <- 
+  full_join(
+  manaus %>% 
+  select(date = Data,
+         manaus = Precipitacao),
+  rpde %>% 
+    select(date = Data,
+           rpde = Precipitacao),
+  by = "date")
+daily_sources3 <- left_join(daily_sources2, stations, by = "date")
+```
+
+Imputed daily data
+
+```{r}
+imp_wide <- imp %>% 
+  pivot_wider(names_from = site, names_prefix = "imp_", values_from = precip)
+daily_sources4 <- left_join(daily_sources3, imp_wide, by = "date")
+```
+
+
+# Calculate correlations
+
+Using all pairwise complete observations and non-parameteric Spearman correlation.
+
+```{r}
+cor_mat <- 
+  daily_sources4 %>% 
+  as_tibble() %>% 
+  select(-date) %>% 
+  cor(use = "pairwise.complete.obs", method = "spearman") 
+
+cor_df <-
+  cor_mat %>%
+  # cor() %>% 
+  as_tibble(rownames = "source_a") %>% 
+  pivot_longer(-source_a, names_to = "source_b", values_to = "cor") %>% 
+  mutate(source_a = fct_inorder(source_a),
+         source_b = fct_inorder(source_b))
+
+ggplot(cor_df, aes(x = source_a, y = source_b)) +
+  geom_point(aes(size = abs(cor), color = cor)) +
+  scale_color_continuous(type = "viridis") +
+  theme_bw() +
+  theme(axis.text.x.bottom = element_text(angle = 45, hjust =1),
+        axis.title = element_blank()) +
+  labs(title = "Pairwise correlations among daily precipitation data sources",
+       caption = "bdffp = mean of rain gauges\n sa and xa are gridded data products\n manaus and rpde are weather stations\n imp_* are imputed values using all these data")
+```
+Why are some of the rain gauges so strongly negatively correlated?
+
+```{r}
+ggplot(daily_sources4, aes(x = florestal, y = km41)) +
+  geom_point()
+ggplot(daily_sources4, aes(x = florestal, y = `porto alegre`)) +
+  geom_point()
+ggplot(daily_sources4, aes(x = gaviao, y = `cabo frio`)) +
+  geom_point()
+```
+
+Because there's only like 3 days when there is data from both!
+
+# Monthly rainfall data
+
+For this, I guess I'll keep all accumulations
+
+```{r}
+bdffp_all <-
+  bdffp %>% 
+  # filter(flag != "A") %>% 
+  select(site, date, precip) %>% 
+  pivot_wider(names_from = site, values_from = precip) %>% 
+  arrange(date) %>% 
+  rowwise() %>% 
+  mutate(bdffp = mean(c_across(-date), na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  select(date, bdffp)
+
+bdffp_ts2 <-
+  bdffp_all %>% 
+    as_tsibble(index = date) %>% 
+    fill_gaps()
+
+monthly_sources <- 
+  full_join(bdffp_ts2, 
+          daily_sources4 %>% 
+            select(-c(km37:bdffp))) %>% 
+  mutate(yearmonth = yearmonth(date), .after = date) %>% 
+  as_tibble() %>%
+  group_by(yearmonth) %>% 
+  summarise(across(-c(date), ~sum(., na.rm = TRUE), .names = "{col}")) %>% 
+  ungroup()
+```
+
+```{r}
+cor_mat2 <- 
+  monthly_sources %>% 
+  as_tibble() %>% 
+  select(-yearmonth) %>% 
+  cor(use = "pairwise.complete.obs", method = "spearman") 
+
+cor_df2 <-
+  cor_mat2 %>%
+  # cor() %>% 
+  as_tibble(rownames = "source_a") %>% 
+  pivot_longer(-source_a, names_to = "source_b", values_to = "cor") %>% 
+  mutate(source_a = fct_inorder(source_a),
+         source_b = fct_inorder(source_b)) %>% 
+  mutate(cor = ifelse(source_a == source_b, NA, cor)) #remove diagonal
+
+ggplot(cor_df2, aes(x = source_a, y = source_b)) +
+  geom_point(aes(size = abs(cor), color = cor)) +
+  scale_color_continuous(type = "viridis") +
+  theme_bw() +
+  theme(axis.text.x.bottom = element_text(angle = 45, hjust =1),
+        axis.title = element_blank()) +
+  labs(title = "Pairwise correlations for monthly aggregated precipitation",
+       caption = "'bdffp' = mean of rain gauges\n 'sa' and 'xa' are gridded data products\n 'manaus' and 'rpde' are weather stations\n 'imp_*' are imputed using all these data")
+```
+# SPEI data
+
+Here I'll compare SPEI data calculated using the imputed data, the `xa` dataset, and values retrieved from TRMM and GPM.
+
+Eventually/ideally, I'll do this for every plot, but to start with, I'll just use the colosso cluster of plots.
+
+## Read in imputed SPEI
+
+```{r}
+spei_imp <- read_csv(here("data_complete", "mon_precip_spi_imputed.csv"))
+spei_imp <- spei_imp %>% filter(site == "colosso_clust") %>% select(date, imp_spei = spei) 
+spei_imp
+```
+## Calculate SPEI with `xa` dataset
+
+Which grid cell is Colosso in?  Center is at -59.6, -2.4, roughly.
+
+```{r}
+xa_mon <-
+  xa %>%
+  unite(latlon, lat, lon, sep = ", ") %>% 
+  filter(latlon == "-2.375, -59.625") %>% 
+  select(date, precip, eto) %>% 
+  mutate(yearmonth = yearmonth(date)) %>% 
+  group_by(yearmonth) %>% 
+  summarize(across(c(precip, eto), sum)) %>% 
+  as_tsibble(index = yearmonth)
+```
+```{r}
+library(SPEI)
+spei_xa <-
+  xa_mon %>% 
+  mutate(cb = precip - eto) %>% #calculate climatic water balance
+  mutate(xa_spei = as.numeric(spei(.$cb, scale = 3)$fitted)) %>% 
+  mutate(date = as.Date(yearmonth)) %>% 
+  as_tibble() %>% 
+  select(date, xa_spei)
+spei_xa
+```
+# Get pre-calculated SPEI data
+
+From Global SPEI database (spei.csic.es/database.html)
+
+```{r}
+global <- read_delim(here("data_raw", "global_spei_-59.75_ -2.25.csv"), delim = ";")
+spei_global <-
+  global %>% 
+  rename(date = "days since 1900-1-1", g_spei = spei)
+
+range(spei_global$date)
+```
+
+# Join and compare
+
+actually easier to join by yearmonth
+
+```{r}
+spei_global <- spei_global %>% mutate(yearmonth = yearmonth(date), date = NULL)
+spei_xa <- spei_xa %>% mutate(yearmonth = yearmonth(date), date = NULL)
+spei_imp <- spei_imp %>% mutate(yearmonth = yearmonth(date), date = NULL)
+
+spei_all <-
+  inner_join(inner_join(spei_imp, spei_global), spei_xa) %>% 
+  select(yearmonth, everything())
+
+spei_all %>% 
+  select(-yearmonth) %>% 
+  cor(use = "pairwise.complete.obs")
+```
+
+Huh, wow.  Not great.
+
+```{r}
+df <- spei_all %>% 
+  filter(complete.cases(.)) %>% 
+  pivot_longer(-yearmonth, names_to = "source", values_to = "spei_3") %>% 
+  filter(lubridate::year(yearmonth) != 1987)
+
+p <- ggplot(df, aes(x = yearmonth, y = spei_3, color = source)) +
+  geom_line() +
+  scale_x_yearmonth("Date", expand = c(0,0)) +
+  facet_wrap(~lubridate::year(yearmonth), scales = "free_x")
+annotate_spei(p)
+```
+
+So direction of drought mostly the same, magnitude fairly different from global SPEI database sometimes. (2004 and 2009).
+
+
