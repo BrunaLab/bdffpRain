@@ -1,7 +1,7 @@
 library(readr)
 library(here)
 
-df <- read_csv(here("data_cleaned", "mon_precip_spi_imputed.csv"))
+df <- read_csv(here("data_complete", "mon_precip_spi_imputed.csv"))
 
 test_that("imputed output is well formed", {
   expect_false(any(is.infinite(df$spi)))
@@ -10,7 +10,7 @@ test_that("imputed output is well formed", {
   expect_false(any(is.infinite(df$precip_tot)))
 })
 
-df2 <- read_csv(here("data_cleaned", "mon_precip_spi_repl.csv"))
+df2 <- read_csv(here("data_complete", "mon_precip_spi_repl.csv"))
 
 test_that("replacement output is well formed", {
   expect_false(any(is.infinite(df2$spi)))
