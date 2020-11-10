@@ -434,7 +434,10 @@ all_clean2 %>%
   filter(rowid == first(rowid))
 all_clean2 %>% 
   group_by(site) %>% 
-  filter(precip > 0 & is.na(lag(precip)) & is.na(flag) & rowid != first(rowid))
+  filter(precip > 0) %>% 
+  filter(is.na(lag(precip))) %>% 
+  # filter(is.na(flag)) %>% 
+  filter(rowid != first(rowid))
 ```
 
 ## Create flags
@@ -457,11 +460,32 @@ all_flags <-
 # all_flags %>% filter(flag == "A")
 ```
 
+# Add approximate lat lon for each camp.
+
+Rain gauges were at camps, most of which were mapped, but the original GPS data is lost.  I opened the map in FIJI and got coordinates of all camps marked with purple triangles and inferred locations of other camps through conversations with Dr. Bruna.
+
+```{r}
+latlon <- read_csv(here("data_raw", "rain_gauge_coords.csv"))
+latlon$camp %>% unique()
+all_flags$site %>% unique()
+```
+```{r}
+latlon2 <- 
+  latlon %>% 
+  mutate(camp = str_replace(camp, "_", " ")) %>% 
+  select(site = camp, lon, lat)
+```
+```{r}
+out <-
+  full_join(all_flags, latlon2, by = "site") %>% 
+  select(site, lat, lon, everything())
+```
+
 
 # Write to file
 
 ```{r}
 #remove rowname
-out <- all_flags %>% select(-rowid)
+out <- out %>% select(-rowid)
 write_csv(out, here("data_cleaned", "daily_precip.csv"))
 ```
