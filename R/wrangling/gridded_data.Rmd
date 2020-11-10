@@ -103,16 +103,11 @@ The data comes in decade long files with one variable per file (UGH).  I'm using
 
 Merging the NetCDF files is going to be most easily done with a command line tool, `cdo`.  Info on installation here: https://code.mpimet.mpg.de/projects/cdo
 
-```{r}
-lon_min; lon_max
-lat_min; lat_max
-```
-
 ### Precip
 
 This code filters each file for only the relevant grid cells, then merges them and writes a file `all_precip.nc`
 
-```{bash}
+```{bash eval=FALSE}
 cd ~/Documents/Heliconia-Drought/data_raw/XavierUT
 
 cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 prec_daily_UT_Brazil_v2.1_19800101_19891231.nc 1980_1989.nc
@@ -128,7 +123,7 @@ rm 1980_1989.nc 1990_1999.nc 2000_2009.nc 2010_2015.nc
 
 Repeat with evapotranspirtation
 
-```{bash}
+```{bash eval=FALSE}
 cd ~/Documents/Heliconia-Drought/data_raw/XavierUT
 
 cdo sellonlatbox,-60.167,-59.583,-2.5,-2.25 ETo_daily_UT_Brazil_v2_19800101_19891231.nc 1900_1989.nc
@@ -141,13 +136,10 @@ cdo -O mergetime 1900_1989.nc 1990_1999.nc 2000_2006.nc 2007_2013.nc 2014_2017.n
 rm 1900_1989.nc 1990_1999.nc 2000_2006.nc 2007_2013.nc 2014_2017.nc
 ```
 
-```{bash}
+```{bash eval=FALSE}
 cd ~/Documents/Heliconia-Drought/data_raw/XavierUT
 
 cdo -O merge all_precip.nc all_eto.nc precip_eto.nc
-```
-```{r}
-# nc_open(here("data_raw", "XavierUT", "precip_eto.nc"))
 ```
 
 
