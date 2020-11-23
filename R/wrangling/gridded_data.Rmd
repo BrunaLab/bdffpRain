@@ -179,7 +179,58 @@ xa_clim <-
 write_csv(xa_clim, here("data_cleaned", "xavier_daily_0.25x0.25.csv"))
 ```
 
+# TRMM
 
+Wow, really having a lot of trouble with this.  Their web-interface lets me subset by time and location, but just gives me a list of links and instructions to use `curl` to download them all.  Then I'd have to stitch them together.
+
+## Link list:
+
+```{r}
+tail(read_lines(here("data_raw", "subset_TRMM_3B43_7_20201120_205339.txt")))
+```
+
+
+
+## OPeNDAP
+
+They have a THREDDS server, but `nc_open` either can't deal with HDF files or something else is wrong.
+
+```{r}
+nc_open("https://disc2.gesdisc.eosdis.nasa.gov/opendap/TRMM_L3/TRMM_3B43.7/1998/3B43.19980101.7.HDF")
+```
+
+## rgdal
+
+`rgdal` is an interface to the command-line tool `gdal`. This also seems to not work.
+
+```{r}
+library(rgdal)
+library(gdalUtils)
+
+sds <- get_subdatasets("https://disc2.gesdisc.eosdis.nasa.gov/opendap/TRMM_L3/TRMM_3B43.7/1998/3B43.19980101.7.HDF.nc4?precipitation[479:481][190:190],relativeError[479:481][190:191],gaugeRelativeWeighting[479:481][190:191],nlon[479:481],nlat[191:191]")
+```
+## NASAaccess
+
+NASA provides an R package, but it requires a shapefile (.shp) to subset data by location.  Not sure if I could give it a `raster::extent()` or `sp::bbox()`, but seems like probably not.
+
+```{r}
+library(NASAaccess)
+?NASAaccess::GPMpolyCentroid
+```
+
+
+# CHIRPS
+
+Also doesn't work.  The README from `climateR` suggests that this should work, but it doesn't.  Seems like a bug https://github.com/mikejohnson51/climateR/issues/22
+
+```{r}
+library(climateR)
+library(sf)
+AOI <- st_bbox(c(xmin = -60, xmax = -59, ymin = -2.5, ymax = -2), crs = 4326)
+
+getCHIRPS(AOI, startDate = "1999-01-01", endDate = "2000-01-01")
+
+```
 
 
 

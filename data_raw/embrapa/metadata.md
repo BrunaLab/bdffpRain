@@ -15,3 +15,5 @@ Both have the following columns:
 - `Temperatura_Minima` (numeric): minimum temperature (ºC)
 - `Velocidade_do_Vento` (numeric): wind speed (m/s)
 - `Evatotranspiracao` (numeric): Evapotranspiration (mm)
+
+See also: https://www.embrapa.br/en/busca-de-solucoes-tecnologicas/-/produto-servico/6044/infoclima---informacoes-climaticas
