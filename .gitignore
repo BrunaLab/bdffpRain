@@ -5,3 +5,5 @@
 *.nb.html
 *.nc
 *.pdf
+.netrc
+.urs_cookies

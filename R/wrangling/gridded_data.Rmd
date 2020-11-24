@@ -207,7 +207,7 @@ nc_open("https://disc2.gesdisc.eosdis.nasa.gov/opendap/TRMM_L3/TRMM_3B43.7/1998/
 library(rgdal)
 library(gdalUtils)
 
-sds <- get_subdatasets("https://disc2.gesdisc.eosdis.nasa.gov/opendap/TRMM_L3/TRMM_3B43.7/1998/3B43.19980101.7.HDF.nc4?precipitation[479:481][190:190],relativeError[479:481][190:191],gaugeRelativeWeighting[479:481][190:191],nlon[479:481],nlat[191:191]")
+sds <- get_subdatasets("https://disc2.gesdisc.eosdis.nasa.gov/opendap/TRMM_L3/TRMM_3B43.7/1998/3B43.19980101.7.HDF")
 ```
 ## NASAaccess
 
@@ -218,6 +218,31 @@ library(NASAaccess)
 ?NASAaccess::GPMpolyCentroid
 ```
 
+## With httr
+Instructions [here](https://wiki.earthdata.nasa.gov/display/EL/How+to+access+data+with+R)
+
+```{r}
+library(httr)
+set_config(
+  config(
+    followlocation = 1,
+    netrc = 1,
+    netrc_file = here(".netrc"),
+    cookie = here(".urs_cookies"),
+    cookiefile = here(".urs_cookies"),
+    cookiejar = here(".urs_cookies")
+  )
+)
+
+GET(
+  url = "https://disc2.gesdisc.eosdis.nasa.gov/opendap/TRMM_L3/TRMM_3B43.7/1998/3B43.19980101.7.HDF.nc4?precipitation[479:481][190:190],relativeError[479:481][190:190],gaugeRelativeWeighting[479:481][190:190],nlon[479:481],nlat[190:190]",
+  write_disk(here("data_raw", "test.nc4"))
+)
+
+# nc_open(here("data_raw", "test.nc4")) #ugh, can't use nc_open().
+```
+
+Stragegy:  Get download link list,  `map` `GET` to list, then use `cdo -O mergetime` in bash or maybe something in `rgdal` to merge all files.
 
 # CHIRPS
 
