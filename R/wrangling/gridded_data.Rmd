@@ -182,47 +182,9 @@ write_csv(xa_clim, here("data_cleaned", "xavier_daily_0.25x0.25.csv"))
 
 # TRMM
 
-Wow, really having a lot of trouble with this.  Their web-interface lets me subset by time and location, but just gives me a list of links and instructions to use `curl` to download them all.  Then I'd have to stitch them together.
+My goodness this was difficult to do.  I ended up following their instructions for using GET requests and combined data with non-spatial wrangling tools I know how to use already.
 
-## Link list:
-
-```{r}
-tail(read_lines(here("data_raw", "subset_TRMM_3B43_7_20201120_205339.txt")))
-```
-
-
-
-## OPeNDAP
-
-They have a THREDDS server, but `nc_open` either can't deal with HDF files or something else is wrong.
-
-```{r}
-nc_open("https://disc2.gesdisc.eosdis.nasa.gov/opendap/TRMM_L3/TRMM_3B43.7/1998/3B43.19980101.7.HDF")
-```
-
-## rgdal
-
-`rgdal` is an interface to the command-line tool `gdal`. This also seems to not work.
-
-```{r}
-library(rgdal)
-library(gdalUtils)
-
-sds <- get_subdatasets("https://disc2.gesdisc.eosdis.nasa.gov/opendap/TRMM_L3/TRMM_3B43.7/1998/3B43.19980101.7.HDF")
-```
-## NASAaccess
-
-NASA provides an R package, but it requires a shapefile (.shp) to subset data by location.  Not sure if I could give it a `raster::extent()` or `sp::bbox()`, but seems like probably not.
-
-```{r}
-library(NASAaccess)
-?NASAaccess::GPMpolyCentroid
-```
-
-## With httr
-
-
-### Configure access to opendap
+## Configure access to opendap
 
 Instructions [here](https://wiki.earthdata.nasa.gov/display/EL/How+to+access+data+with+R) for setting up access via http GET requests.  It involves creating a .netrc file to hold config information
 
@@ -240,7 +202,7 @@ set_config(
 )
 ```
 
-### Download files
+## Download files
 
 Get list of download links [here](https://disc.gsfc.nasa.gov/datasets/TRMM_3B43_7/summary) using the "Subset / Get Data" link.
 
@@ -266,9 +228,9 @@ map2(urls, outpaths, ~{
 })
 ```
 
-### Read in and combine
+## Read in and combine
 
-I did this before with a command line utility, but someone suggested `raster::stack`
+I did this before with a command line utility, but someone suggested `raster`.  In fact, these .nc4 files don't have a time dimension, so combining them with the command line utility doesn't seem to work.  I'm going to take a fairly hacky solution with `purr::map`, which is fine since I'm not using these data in a spatial analysis and want them in a tidy format anyway.
 
 ```{r}
 r <- raster(outpaths[1], crs = 4326)
@@ -283,22 +245,10 @@ r.t.flipxy <- flip(r.t.flipy, direction = 1)
 
 plot(r.t.flipxy)
 ```
-Try as a raster stack
+
+Read in all files, flip them, extract precip data as a matrix.
 
 ```{r}
-rs <- raster::stack(outpaths[1:5])
-rs2 <- rs %>% t() %>% flip(2) %>% flip(1)
-crs(rs2) <- 4326
-
-names(rs2) <- ymd(dates)[1:5]
-rs2
-```
-
-```{r}
-test <- getValues(rs2$X1998.01.01, format = "matrix")
-colnames(test) <- xFromCol(rs2$X1998.01.01)
-rownames(test) <- yFromRow(rs2$X1998.01.01)
-test
 precip_list <-
   map(outpaths, ~{
     r <- raster(.x) %>% 
@@ -309,12 +259,15 @@ precip_list <-
     rownames(p) <- yFromRow(r)
     p
   }) %>% set_names(ymd(dates))
+```
 
-precip_list[[1]] %>% 
-  as_tibble(rownames = "lat") %>% 
-  pivot_longer(-lat, names_to = "long", values_to = "precip")
+## Tidy
 
-trmm <- precip_list %>% 
+Take that list of matrixes and convert to tidy data frame
+
+```{r}
+trmm <-
+  precip_list %>% 
   map_dfr(~{
     as_tibble(.x, rownames = "lat") %>% 
       pivot_longer(-lat, names_to = "long", values_to = "precip")
@@ -322,7 +275,7 @@ trmm <- precip_list %>%
   mutate(date = ymd(date))
 ```
 
-
+test plot:
 ```{r}
 trmm %>% 
   filter(lat == first(lat), long == first(long)) %>% 
@@ -330,6 +283,11 @@ trmm %>%
 ```
 
 
+## Write to file
+
+```{r}
+write_rds(trmm, here("data_cleaned", "trmm.rds"))
+```
 
 
 
