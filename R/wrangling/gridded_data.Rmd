@@ -26,6 +26,7 @@ library(ncdf4)
 library(raster)
 library(lubridate)
 library(sp)
+library(glue)
 ```
 
 *Last compiled: `r Sys.Date()`*
@@ -53,7 +54,7 @@ sa <- nc_open(here("data_raw", "sa24.daily.1.nc"))
 ```{r}
 names(sa$var)
 names(sa$dim)
-
+sa
 lat <- ncvar_get(sa, "lat")
 lon <- ncvar_get(sa, "lon")
 time <- ncvar_get(sa, "time") #"days since 1800-1-1 00:00:00"
@@ -219,7 +220,11 @@ library(NASAaccess)
 ```
 
 ## With httr
-Instructions [here](https://wiki.earthdata.nasa.gov/display/EL/How+to+access+data+with+R)
+
+
+### Configure access to opendap
+
+Instructions [here](https://wiki.earthdata.nasa.gov/display/EL/How+to+access+data+with+R) for setting up access via http GET requests.  It involves creating a .netrc file to hold config information
 
 ```{r}
 library(httr)
@@ -233,16 +238,101 @@ set_config(
     cookiejar = here(".urs_cookies")
   )
 )
-
-GET(
-  url = "https://disc2.gesdisc.eosdis.nasa.gov/opendap/TRMM_L3/TRMM_3B43.7/1998/3B43.19980101.7.HDF.nc4?precipitation[479:481][190:190],relativeError[479:481][190:190],gaugeRelativeWeighting[479:481][190:190],nlon[479:481],nlat[190:190]",
-  write_disk(here("data_raw", "test.nc4"))
-)
-
-# nc_open(here("data_raw", "test.nc4")) #ugh, can't use nc_open().
 ```
 
-Stragegy:  Get download link list,  `map` `GET` to list, then use `cdo -O mergetime` in bash or maybe something in `rgdal` to merge all files.
+### Download files
+
+Get list of download links [here](https://disc.gsfc.nasa.gov/datasets/TRMM_3B43_7/summary) using the "Subset / Get Data" link.
+
+```{r}
+urls <- read_lines(here("data_raw", "TRMM", "subset_TRMM_3B43_7_20201130_204909.txt"), skip = 1)
+urls[1]
+```
+
+Extract file name and create paths to write to.
+
+```{r}
+dates <- str_extract(urls, "(?<=3B43\\.)\\d{8}")
+outnames <- glue('trmm_3B43_7_{dates}.nc4')
+outpaths <- here("data_raw", "TRMM", outnames)
+```
+
+Download each .nc4 file.
+
+```{r}
+map2(urls, outpaths, ~{
+  GET(url = .x,
+      write_disk(.y))
+})
+```
+
+### Read in and combine
+
+I did this before with a command line utility, but someone suggested `raster::stack`
+
+```{r}
+r <- raster(outpaths[1], crs = 4326)
+plot(r)
+```
+For some weird reason, the data are rotated before I do any processing.  I'm not the only one to have [this problem](https://stackoverflow.com/questions/44507754/raster-stack-incorrecting-plotting-latitude-and-longitude-coordinates) with TRMM data.
+
+```{r}
+r.t <- t(r) #rotate
+r.t.flipy <- flip(r.t, direction = 2)
+r.t.flipxy <- flip(r.t.flipy, direction = 1)
+
+plot(r.t.flipxy)
+```
+Try as a raster stack
+
+```{r}
+rs <- raster::stack(outpaths[1:5])
+rs2 <- rs %>% t() %>% flip(2) %>% flip(1)
+crs(rs2) <- 4326
+
+names(rs2) <- ymd(dates)[1:5]
+rs2
+```
+
+```{r}
+test <- getValues(rs2$X1998.01.01, format = "matrix")
+colnames(test) <- xFromCol(rs2$X1998.01.01)
+rownames(test) <- yFromRow(rs2$X1998.01.01)
+test
+precip_list <-
+  map(outpaths, ~{
+    r <- raster(.x) %>% 
+      t() %>% flip(2) %>% flip(1) 
+    
+    p <- getValues(r, format = "matrix")
+    colnames(p) <- xFromCol(r)
+    rownames(p) <- yFromRow(r)
+    p
+  }) %>% set_names(ymd(dates))
+
+precip_list[[1]] %>% 
+  as_tibble(rownames = "lat") %>% 
+  pivot_longer(-lat, names_to = "long", values_to = "precip")
+
+trmm <- precip_list %>% 
+  map_dfr(~{
+    as_tibble(.x, rownames = "lat") %>% 
+      pivot_longer(-lat, names_to = "long", values_to = "precip")
+  }, .id = "date") %>% 
+  mutate(date = ymd(date))
+```
+
+
+```{r}
+trmm %>% 
+  filter(lat == first(lat), long == first(long)) %>% 
+  ggplot(aes(x = date, y = precip)) + geom_line()
+```
+
+
+
+
+
 
 # CHIRPS
 
@@ -253,7 +343,7 @@ library(climateR)
 library(sf)
 AOI <- st_bbox(c(xmin = -60, xmax = -59, ymin = -2.5, ymax = -2), crs = 4326)
 
-getCHIRPS(AOI, startDate = "1999-01-01", endDate = "2000-01-01")
+getCHIRPS(AOI, startDate = "1999-01-01", endDate = "2001-01-01")
 
 ```
 
