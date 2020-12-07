@@ -222,10 +222,12 @@ outpaths <- here("data_raw", "TRMM", outnames)
 Download each .nc4 file.
 
 ```{r}
-map2(urls, outpaths, ~{
-  GET(url = .x,
-      write_disk(.y))
-})
+if(!all(file.exists(outpaths))) {
+  map2(urls, outpaths, ~{
+    GET(url = .x,
+        write_disk(.y, overwrite = TRUE))
+  })
+}
 ```
 
 ## Read in and combine
@@ -286,7 +288,7 @@ trmm %>%
 ## Write to file
 
 ```{r}
-write_rds(trmm, here("data_cleaned", "trmm.rds"))
+write_csv(trmm, here("data_cleaned", "trmm.csv"))
 ```
 
 
