@@ -15,8 +15,6 @@ conflict_prefer("filter", "dplyr")
 
 # Load Data ---------------------------------------------------------------
 bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"))
-sa <- read_csv(here("data_cleaned", "sa_daily_1x1.csv"))
-xa <- read_csv(here("data_cleaned", "xavier_daily_0.25x0.25.csv"))
 manaus <- read_csv(here("data_raw", "embrapa", "Estacao_Manaus_1980-01-01_2016-12-31.csv"))
 rpde <- read_csv(here("data_raw", "embrapa", "Estacao_Rio Preto da Eva_1980-01-01_2016-12-31.csv"))
 
@@ -50,12 +48,6 @@ bdffp_wide2 <-
   select(-cabo_frio, -colosso, -florestal, -gaviao, -km37, -km41)
 
 # Add additional data ------------------------------------------------
-xa_wide <-
-  xa %>% 
-  mutate(xa_latlon = paste(lat, lon, sep = ", "), lat = NULL, lon = NULL) %>% 
-  pivot_wider(names_from = xa_latlon, values_from = c(precip, eto)) %>%
-  clean_names()
-
 embrapa <-
   full_join(
     rename_with(manaus, ~glue::glue("manaus_{tolower(.)}"), !matches("Data")),
@@ -63,14 +55,8 @@ embrapa <-
   ) %>% 
   rename(date = Data)
 
-sa <-
-  sa %>% 
-  select(date, precip)
-
 joined <-
-  left_join(bdffp_wide2, embrapa, by = "date") %>%
-  left_join(sa, by = "date") %>%
-  left_join(xa_wide, by = "date")
+  left_join(bdffp_wide2, embrapa, by = "date")
 
 # additional representations of time for Amelia.
 full_wide <- 
@@ -111,17 +97,17 @@ imp <-
 # SPI and SPEI calculations --------------------------------------------------------
 
 # Calculate SPI and SPEI on each of the imputations, then combine
-# Sources of evapotranspiration data are highly correlated.  I'll use the gridded data because it is higher resolution than the station data
-# full_wide %>% 
-#   select(starts_with("eto"), ends_with("evatotranspiracao")) %>%
-#   cor()
+
 
 # Aggregate by month
 imp_mon <-
   map(imp$imputations, ~{
     .x %>% 
       rename_with(~paste0(., ".precip"), c(dimona, porto_alegre, colosso_clust, km_clust)) %>% 
-      select(date, ends_with(".precip"), starts_with("eto_")) %>% 
+      rowwise() %>% 
+      mutate(mean_eto = mean(c_across(ends_with("transpiracao")))) %>% 
+      ungroup() %>% 
+      select(date, ends_with(".precip"), mean_eto) %>% 
       mutate(yearmonth = tsibble::yearmonth(date)) %>% 
       group_by(yearmonth) %>% 
       summarize(across(-date, ~sum(.x, na.rm = TRUE))) %>% 
@@ -133,11 +119,9 @@ imp_mon <-
 imp_mon <-
   map(imp_mon, ~{
   .x %>% 
-    mutate(dimona.cb = dimona.precip - eto_2_375_60_125) %>% 
-    mutate(across(c(porto_alegre.precip, colosso_clust.precip),
-                  ~.x - eto_2_375_59_875,
-                  .names = "{str_remove(col, '.precip')}.cb")) %>% 
-    mutate(km_clust.cb = km_clust.precip - eto_2_375_59_625)
+    mutate(across(ends_with(".precip"),
+                  ~.x - mean_eto,
+                  .names = "{str_remove(col, '.precip')}.cb"))
 })
 
 # Calculate SPI3 and SPEI3 (i.e. 3-month window SPI and SPEI)
