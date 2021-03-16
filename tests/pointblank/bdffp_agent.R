@@ -1,13 +1,18 @@
 library(pointblank)
+library(tidyverse)
 library(readr)
+library(here)
 
-bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"), col_types = cols(site = col_character()))
+# bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"), col_types = cols(site = col_character()))
 
 # scan_data(bdffp)
 al <- action_levels(warn_at = 0.1, stop_at = 0.2)
 bdffp_agent <-
-  bdffp %>% 
-  create_agent(actions = al) %>% 
+  create_agent(
+    read_fn = ~ read_csv(here("data_cleaned", "daily_precip.csv"),
+                         col_types = cols(site = col_character())),
+    actions = al
+  ) %>% 
   col_is_date(vars(date)) %>% 
   col_is_character(vars(site, observer, notes, flag)) %>% 
   col_is_numeric(vars(doy, precip)) %>% 
@@ -38,6 +43,5 @@ bdffp_agent <-
     vars(duped), FALSE,
     preconditions = ~. %>% group_by(site) %>% mutate(duped = duplicated(date)) %>% ungroup(),
     label = "Are any dates duplicated within a site?"
-  )
-  
-interrogate(bdffp_agent)
+  ) %>% 
+  interrogate()

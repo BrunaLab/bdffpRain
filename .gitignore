@@ -7,3 +7,4 @@
 *.pdf
 .netrc
 .urs_cookies
+.Renviron
