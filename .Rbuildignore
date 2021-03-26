@@ -3,4 +3,7 @@
 ^\.github$
 ^bdffpRain\.Rproj$
 ^\.Rproj\.user$
-^data_raw$
+^rawData$
+^wrangling$
+^notes$
+^LICENSE\.md$
