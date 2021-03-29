@@ -27,12 +27,16 @@ conflict_prefer("lag", "dplyr")
 *Last compiled: `r Sys.Date()`*
 
 # Purpose
-Identify problems in the data.  Figure out what to do with missing values and multi-day accumulated values. Explore consistency of precip data across sites at BDFFP at different levels of aggregation (daily, monthly, yearly). 
+
+Identify problems in the data.
+Figure out what to do with missing values and multi-day accumulated values.
+Explore consistency of precip data across sites at BDFFP at different levels of aggregation (daily, monthly, yearly).
 
 # Load Data
 
 ```{r data, echo=TRUE}
-bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"), col_types = cols(site = col_character()))
+# bdffp <- read_csv(here("data_cleaned", "daily_precip.csv"), col_types = cols(site = col_character()))
+bdffp <- bdffp_rain
 skim(bdffp)
 ```
 
@@ -72,8 +76,7 @@ bdffp_ts %>%
   labs(x = "Date", y = "Site", title = "All gaps in data")
 ```
 
-But that's sort of useless.  
-
+But that's sort of useless.
 
 # Deal with accumulations
 
@@ -103,13 +106,16 @@ bdffp %>%
   facet_wrap("gaptype", ncol = 1) +
   labs(x = "Precipitation (mm)", y = "Proportion of observations", caption = '"ordinary" = no preceding gap\n "untagged" = preceding gap w/ no note\n "accumulated" = preceding gap w/ note that obs is accumulated precip')
 ```
-I think at least some of the untagged values following gaps are probably accumulations, and some might be zeroes.  Either way, for aggregated data it's probably OK to sum at least for small-ish time gaps that aren't near month borders.
+
+I think at least some of the untagged values following gaps are probably accumulations, and some might be zeroes.
+Either way, for aggregated data it's probably OK to sum at least for small-ish time gaps that aren't near month borders.
 
 ```{r}
 bdffp %>% filter(gaptype == "untagged" & !is.na(notes))
 bdffp %>% count(gaptype)
 bdffp %>% filter(gaptype == "untagged", precip > 0) %>% count()
 ```
+
 1161 potentially untagged accumulations
 
 ## Length of gaps
@@ -141,7 +147,8 @@ gap_summary
 bdffp %>% filter(gap_len > 30 & flag == "accumulated")
 ```
 
-Plotting gap length vs precip after gap.  (is this helpful?)
+Plotting gap length vs precip after gap.
+(is this helpful?)
 
 ```{r}
 bdffp %>% 
@@ -153,7 +160,9 @@ bdffp %>%
 
 ## Are NA's zeroes?
 
-How are NAs distributed over time?  Are they more common in the dry season?  Then they might actually sometimes be zeroes (uh oh).
+How are NAs distributed over time?
+Are they more common in the dry season?
+Then they might actually sometimes be zeroes (uh oh).
 
 ```{r}
 bdffp %>% 
@@ -173,13 +182,16 @@ km41 is the best data
 
 # Compare With Other Data Sources
 
-I'll merge these rain gauge data with the continuous data from the Manaus weather station and the interpolated GPCC data.  Then, one site at a time, I'll investigate concordance among data sources.
+I'll merge these rain gauge data with the continuous data from the Manaus weather station and the interpolated GPCC data.
+Then, one site at a time, I'll investigate concordance among data sources.
 
 ## Prep for merging
 
-Since the GPCC data is aggregated monthly, here I'll aggregate monthly as well.  For now, I'll ignore accumulated precip that crosses month borders and just sum everything for the month, removing missing values.  If there are no precip measurments for the month at a site, then it is a true NA for total precip.
+Since the GPCC data is aggregated monthly, here I'll aggregate monthly as well.
+For now, I'll ignore accumulated precip that crosses month borders and just sum everything for the month, removing missing values.
+If there are no precip measurments for the month at a site, then it is a true NA for total precip.
 
-### Aggregate BDFFP data 
+### Aggregate BDFFP data
 
 ```{r}
 bdffp_ts <- 
@@ -237,23 +249,26 @@ unique(gpcc_ts$lat)
 unique(gpcc_ts$lon_lab)
 unique(gpcc_ts$lon)
 ```
-I think the GPCC data are centered on the grid cell coordinates.  That means there's really only two grid cells that cover the whole BDFFP site:
+
+I think the GPCC data are centered on the grid cell coordinates.
+That means there's really only two grid cells that cover the whole BDFFP site:
 
 ```{r}
 knitr::include_graphics("pdbcolp.png")
 ```
+
 ```{r}
 unique(bdffp$site)
 ```
 
-- Dimona: 2º15'S 60º15'W
-- km37:
-- km41: 2º15'S 59º45'W
-- cabo frio: 2º15'S 59º45'W
-- colosso: 2º15'S 59º45'W
-- florestal: 2º15'S 59º45'W
-- gaviao: 2º15'S 59º45'W
-- porto alegre: 2º15'S 59º45'W (close to the border)
+-   Dimona: 2º15'S 60º15'W
+-   km37:
+-   km41: 2º15'S 59º45'W
+-   cabo frio: 2º15'S 59º45'W
+-   colosso: 2º15'S 59º45'W
+-   florestal: 2º15'S 59º45'W
+-   gaviao: 2º15'S 59º45'W
+-   porto alegre: 2º15'S 59º45'W (close to the border)
 
 ```{r}
 gpcc_mon <-
@@ -267,7 +282,6 @@ precip_mon <- bind_rows(bdffp_manaus, gpcc_mon) %>%
   filter(year(yearmonth)>1987 & year(yearmonth) < 2013)
 ```
 
-
 # Plot concordance among sites & data sources
 
 ## Manaus vs GPCC
@@ -278,12 +292,16 @@ precip_mon %>%
   ggplot(aes(x = yearmonth, y = min_tot_precip, color = site)) +
   geom_line() + facet_wrap(~year(yearmonth), scales = "free_x") 
 ```
-Pretty consistently less precip in the east compared to west grid cells that cover BDFFP.  Usually less precip in Manaus except for a few wet winters.
+
+Pretty consistently less precip in the east compared to west grid cells that cover BDFFP.
+Usually less precip in Manaus except for a few wet winters.
 
 ## Sites vs. GPCC
+
 ```{r}
 unique(bdffp$site)
 ```
+
 ```{r}
 library(rlang) #needed for {{}}
 precip_plot <- function(data, site) {
@@ -320,26 +338,31 @@ precip_plot <- function(data, site) {
 ```{r}
 precip_plot(precip_mon, "km37")
 ```
+
 ### km41
 
 ```{r}
 precip_plot(precip_mon, "km41")
 ```
+
 ### Cabo Frio
 
 ```{r}
 precip_plot(precip_mon, "cabo frio")
 ```
+
 ### Colosso
 
 ```{r}
 precip_plot(precip_mon, "colosso")
 ```
+
 ### Dimona
 
 ```{r}
 precip_plot(precip_mon, "dimona")
 ```
+
 ### Florestal
 
 ```{r}

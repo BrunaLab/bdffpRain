@@ -1,0 +1,111 @@
+---
+title: "Imputing missing values"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{imputation}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(bdffpRain)
+library(visdat)
+library(dplyr)
+library(tidyr)
+library(Amelia)
+library(lubridate)
+```
+
+The precipitation records in `bdffp_rain` have a high degree of missingness at all sites (some more than others).
+None of the sites were visited daily, and some were only in operation for part of this time series.
+In this vignette, I'll show one option for imputing missing values in this precipitation time series using the `Amelia` package.
+
+# Inspect data
+
+```{r}
+bdffp_wide <- 
+  bdffp_rain %>%
+  select(date, doy, site, precip) %>% 
+  pivot_wider(names_from = site, values_from = precip) %>% 
+  arrange(date)
+visdat::vis_miss(bdffp_wide)
+```
+
+Some camps like Florestal and Cabo Frio were rarely visited, while others like Km41 and Colosso were more commonly visited.
+Km 37 were only active later in the time series.
+There are also many multi-day accumulations in the data, which do not represent daily data.
+These should be removed before imputing missing values.
+
+```{r}
+bdffp_wide <- 
+  bdffp_rain %>%
+  filter(!flag %in% c("A", "U")) %>% 
+  select(date, doy, site, precip) %>% 
+  pivot_wider(names_from = site, values_from = precip) %>% 
+  arrange(date)
+visdat::vis_miss(bdffp_wide)
+```
+
+# Imputation
+
+Another approach to filling in gaps in the data while retaining variation among sites is imputation.
+Not all of the sites can have missing values filled by imputation because the degree of missingness is too high.
+Here I'll just select Km41, Colosso, Dimona, and Porto Alegre as examples.
+
+```{r}
+bdffp_wide2 <-
+  bdffp_wide %>% 
+  select(date, doy, km41, `colosso`, dimona, `porto alegre`)
+```
+
+Add columns that represent time in different ways to use seasonality to inform imputation
+
+```{r}
+bdffp_wide3 <- 
+  bdffp_wide2 %>% 
+  mutate(year = year(date), .after = date)
+bdffp_wide3
+```
+
+Identify any columns that should be transformed to improve normality.
+
+```{r}
+hist(bdffp_wide3$km41)
+hist(log(bdffp_wide3$km41))
+
+log_cols <- bdffp_wide3 %>% select(-date, -year, -doy) %>% colnames()
+```
+
+Impute (this takes a long time).
+
+```{r}
+bdffp_imp <-
+  amelia(
+    as.data.frame(bdffp_wide3),
+    m = 1,
+    p2s = 0,
+    ts = "doy",
+    cs = "year",
+    intercs = TRUE,
+    polytime = 3,
+    leads = log_cols,
+    lags = log_cols,
+    logs = log_cols,
+    idvars = c("date"),
+    empri = .01 * nrow(bdffp_wide3) #ridge penalty because of high degree of missingness
+  )
+
+bdffp_imp$imp[[1]]
+```
+
+It is also helpful to include additional data sources for imputation such as weather data from near by weather stations or gridded data products.
+For example, you could download INMET data for the Manaus station or Rio Preta da Eva stations from the portal here: <http://www.inmet.gov.br/portal/>.
+
+See vignettes and help files in the `Amelia` package for more.

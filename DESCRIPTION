@@ -23,8 +23,11 @@ Suggests:
     pointblank,
     hms,
     tidyr,
-    dplyr
+    dplyr,
+    knitr,
+    rmarkdown
 Depends: 
     R (>= 2.10)
 Imports: 
     tibble
+VignetteBuilder: knitr
