@@ -16,11 +16,12 @@ knitr::opts_chunk$set(
 
 ```{r setup}
 library(bdffpRain)
-library(visdat)
 library(dplyr)
 library(tidyr)
 library(Amelia)
 library(lubridate)
+library(tsibble)
+library(ggplot2)
 ```
 
 The precipitation records in `bdffp_rain` have a high degree of missingness at all sites (some more than others).
@@ -35,7 +36,7 @@ bdffp_wide <-
   select(date, doy, site, precip) %>% 
   pivot_wider(names_from = site, values_from = precip) %>% 
   arrange(date)
-visdat::vis_miss(bdffp_wide)
+missmap(bdffp_wide)
 ```
 
 Some camps like Florestal and Cabo Frio were rarely visited, while others like Km41 and Colosso were more commonly visited.
@@ -50,14 +51,18 @@ bdffp_wide <-
   select(date, doy, site, precip) %>% 
   pivot_wider(names_from = site, values_from = precip) %>% 
   arrange(date)
-visdat::vis_miss(bdffp_wide)
 ```
 
 # Imputation
 
-Another approach to filling in gaps in the data while retaining variation among sites is imputation.
+One approach to filling in gaps in the data while retaining variation among sites is imputation.
 Not all of the sites can have missing values filled by imputation because the degree of missingness is too high.
-Here I'll just select Km41, Colosso, Dimona, and Porto Alegre as examples.
+Here we'll just select Km41, Colosso, Dimona, and Porto Alegre as examples.
+Below we show an example using the `amelia` package, but you should consult the documentation for `amelia`.
+
+**NOTE: Additional data sources should be added to improve imputation accuracy.** For example, INMET weather station data available through the [Infoclima](http://www.inmet.gov.br/portal/) portal---the Manaus and Rio Preta da Eva stations are geographically closest to BDFFP.
+See also the [`brclimate` package](https://github.com/gustavobio/brclimate).
+More data sources are better---overfitting is not an issue for imputation---but have not been included in this vignette for simplicity.
 
 ```{r}
 bdffp_wide2 <-
@@ -83,14 +88,15 @@ hist(log(bdffp_wide3$km41))
 log_cols <- bdffp_wide3 %>% select(-date, -year, -doy) %>% colnames()
 ```
 
-Impute (this takes a long time).
+Impute (this step may take a while depending on your computer).
+Multiple imputations are preformed by default, but here only a single imputation is done by setting `m = 1`
 
 ```{r}
 bdffp_imp <-
   amelia(
     as.data.frame(bdffp_wide3),
     m = 1,
-    p2s = 0,
+    p2s = 1,
     ts = "doy",
     cs = "year",
     intercs = TRUE,
@@ -101,11 +107,73 @@ bdffp_imp <-
     idvars = c("date"),
     empri = .01 * nrow(bdffp_wide3) #ridge penalty because of high degree of missingness
   )
-
-bdffp_imp$imp[[1]]
 ```
 
-It is also helpful to include additional data sources for imputation such as weather data from near by weather stations or gridded data products.
-For example, you could download INMET data for the Manaus station or Rio Preta da Eva stations from the portal here: <http://www.inmet.gov.br/portal/>.
+## Imputation diagnostics
 
-See vignettes and help files in the `Amelia` package for more.
+A variety of diagnostic tools are provided in `Amelia` to select among possibly settings and data sources for imputation.
+See the vignette for `Amelia` for more information about how to use and interpret these.
+
+```{r}
+plot(bdffp_imp, which.vars = "colosso")
+```
+
+Imputed values (red) have a slightly higher mean than observed values.
+
+## Accessing imputed data
+
+Imputed datasets are stored in the object output by `amelia()`.
+If multiple imputation is used, `bdffp_imp$imp` is a list of multiple datasets.
+Calculations can be done on these in parallel with, for example, the `purr` package, then averaged to take into account uncertainty in the imputation step.
+
+```{r}
+out <- bdffp_imp$imp[[1]]
+head(out)
+```
+
+# Monthly rainfall
+
+Now that we have a complete daily rainfall dataset, we can use it to create monthly rainfall data.
+The `yearmonth` class from the `tsibble` package will be helpful.
+
+```{r}
+monthly_rain <-
+  out %>% 
+  pivot_longer(c(-date, -year, -doy), names_to = "site", values_to = "precip") %>% 
+  mutate(yearmonth = yearmonth(date), .after = year) %>% 
+  group_by(yearmonth, site) %>% 
+  summarize(precip_mon = sum(precip))
+```
+
+## Timeseries plot
+
+We could then use these data to plot a timeseries of monthly precipitation at each site.
+(Remember, these data will be slightly different with a different random seed, because imputed values will change).
+
+```{r}
+ggplot(monthly_rain, aes(x = yearmonth, y = precip_mon)) +
+  geom_line() +
+  facet_wrap(~site) +
+  scale_x_yearmonth()
+```
+
+## Seasonality
+
+We could also the imputed data to calculate mean monthly precipitation at each site for the entire timeseries.
+
+```{r}
+mean_rain <- 
+  monthly_rain %>% 
+  mutate(month = month(yearmonth, label = TRUE)) %>% 
+  group_by(month, site) %>%
+  summarize(precip_mean = mean(precip_mon))
+```
+
+```{r}
+ggplot(mean_rain, aes(x = month, y = precip_mean)) +
+  geom_col() +
+  facet_wrap(~site)
+```
+
+These plots may differ slightly with each run of `amelia()` since imputations are made with some uncertainty that depends on the random seed.
+Additionally, if `amelia()` is run on a dataset with more data sources (recommended), then the output will obviously be different.

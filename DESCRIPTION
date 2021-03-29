@@ -25,7 +25,11 @@ Suggests:
     tidyr,
     dplyr,
     knitr,
-    rmarkdown
+    rmarkdown,
+    Amelia,
+    tsibble,
+    ggplot2,
+    lubridate
 Depends: 
     R (>= 2.10)
 Imports: 
