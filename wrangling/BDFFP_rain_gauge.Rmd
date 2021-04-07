@@ -496,6 +496,15 @@ out <-
   select(site, lat, lon, everything())
 ```
 
+# Issues with observer name
+
+A lot of potential duplicates due to typos.
+I don't know names in Portuguese well enough to do anything about this right now.
+
+```{r}
+bdffp_rain %>% pull(observer) %>% unique() %>% sort()
+```
+
 # Write to file
 
 ```{r}
