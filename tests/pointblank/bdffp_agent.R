@@ -31,6 +31,8 @@ bdffp_agent <-
     preconditions = ~. %>%
       pivot_wider(date, names_from = site, values_from = precip) %>%
       select(-date) %>%
+      #remove sites with very sparse data
+      select(-florestal, -`cabo frio`, -km37, -gaviao) %>%
       cor(use = "pairwise.complete.obs", method = "spearman") %>%
       as_tibble(rownames = "site") %>%
       pivot_longer(-site, names_to = "site2", values_to = "cor"),

@@ -110,6 +110,8 @@ test_that("check that rainfall is at least moderately correlated among sites", {
     preconditions = ~. %>%
       tidyr::pivot_wider(date, names_from = site, values_from = precip) %>%
       dplyr::select(-date) %>%
+      #remove sites with very sparse data
+      dplyr::select(-florestal, -`cabo frio`, -km37, -gaviao) %>%
       cor(use = "pairwise.complete.obs", method = "spearman") %>%
       tibble::as_tibble(rownames = "site") %>%
       tidyr::pivot_longer(-site, names_to = "site2", values_to = "cor")
