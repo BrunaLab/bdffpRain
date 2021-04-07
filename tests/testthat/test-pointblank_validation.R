@@ -64,14 +64,6 @@ test_that("column `precip` is of type: numeric", {
   )
 })
 
-test_that("values should agree with the given R expression", {
-
-  expect_col_vals_expr(
-    bdffp_rain,
-    expr = ~hms::is_hms(time),
-    threshold = 0.2
-  )
-})
 
 test_that("values in `flag` should be in the set of `A`, `U`, `T` (and 2 more)", {
 
@@ -83,12 +75,16 @@ test_that("values in `flag` should be in the set of `A`, `U`, `T` (and 2 more)",
   )
 })
 
-test_that("values should agree with the given R expression", {
+test_that("precip values are reasonable", {
 
-  expect_col_vals_expr(
+  expect_col_vals_between(
     bdffp_rain,
-    expr = ~dplyr::case_when(flag != "A" ~ dplyr::between(precip, 0, 300)),
-    # label = "Is rainfall ever above 300mm in a single day?",
+    columns = precip,
+    left = 0,
+    right = 300,
+    na_pass = TRUE,
+    #only for days that aren't multi-day accumulations
+    preconditions = ~. %>% dplyr::filter(!flag %in% c("A", "U") | is.na(flag)),
     threshold = 0.2
   )
 })
