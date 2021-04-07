@@ -1,0 +1,62 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+# bdffpRain
+
+<!-- badges: start -->
+
+[![R build status](https://github.com/BrunaLab/BDFFP-precipitation/workflows/R-CMD-check/badge.svg)](https://github.com/BrunaLab/BDFFP-precipitation/actions)
+
+<!-- badges: end -->
+
+This repository houses the `bdffpRain` package and the raw data and wrangling code used to produce the `bdffp_rain` dataset.
+
+# The R package
+
+The `bdffpRain` R package contains cleaned daily precipitation data from 8 rain gauges at the Biological Dynamics of Forest Fragments Project between 1987 and 2010.  
+To install the package run:
+
+``` r
+install.packages("remotes")
+remotes::install_github("BrunaLab/bdffpRain")
+```
+
+The only object the package contains is `bdffp_rain` which looks like this:
+
+```{r}
+library(bdffpRain)
+head(bdffp_rain)
+```
+
+Check the help file for detailed metadata with `?bdffp_rain`
+
+# Raw data and wrangling code
+
+If you are interested in the raw data or the code used to clean and wrangle those data, you can fork this repository, or download it with the green "Code" button on this page.
+You'll find the raw data in a series of .XLS files in the `"data_raw"` directory and annotated wrangling code in the `"wrangling"` directory.
+
+# Data usage
+
+If you wish to use this data for a publication, please cite:
+
+<!-- insert zenodo citation -->
+
+The vignette for the package shows an example of how to use imputation to "fill in" missing observations and produce a complete dataset that can be used to produce figures and summary statistics for monthly precipitation at BDFFP.
+
+Additionally, there is old, probably broken code in the `"notes"` directory that may be useful.
+
+# Contributing
+
+If you find mistakes or issues or would like to suggest improvements, please file an issue.

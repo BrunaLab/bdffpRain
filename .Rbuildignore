@@ -1,3 +1,10 @@
 ^renv$
 ^renv\.lock$
 ^\.github$
+^bdffpRain\.Rproj$
+^\.Rproj\.user$
+^data_raw$
+^wrangling$
+^notes$
+^LICENSE\.md$
+^README\.Rmd$
