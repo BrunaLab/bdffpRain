@@ -22,4 +22,5 @@
 #'  following missing data points (assumed multi-day accumulations, U), data
 #'  error (E), trace precipitation (T)}
 #' }
+#' @note The `observer` column contains many duplicates due to typos, alternative spellings of names, and inconsistent use of nicknames (e.g. Zé is a nickname used by both José Luis and José Paulo, all of which also appear with an unaccented "e").
 "bdffp_rain"
