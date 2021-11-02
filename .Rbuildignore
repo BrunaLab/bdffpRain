@@ -8,3 +8,5 @@
 ^notes$
 ^LICENSE\.md$
 ^README\.Rmd$
+^README\.pt-BR\.Rmd$
+^README\.pt-BR\.md$
