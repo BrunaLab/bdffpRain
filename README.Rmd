@@ -21,6 +21,8 @@ knitr::opts_chunk$set(
 
 <!-- badges: end -->
 
+**Translation**: So far I have only translated documentation with Google Scholar, so I would appreciate help translating from English to Portuguese or correcting any mistranslations!
+
 *[Versão em português](https://github.com/BrunaLab/BDFFP-precipitation/blob/master/README.pt-BR.md)*
 
 
@@ -64,3 +66,5 @@ Additionally, there is old, probably broken code in the `"notes"` directory that
 ## Contributing
 
 If you find mistakes or issues or would like to suggest improvements, please file an issue.
+
+
