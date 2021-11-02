@@ -33,6 +33,9 @@ are also gaps in the data when sites weren't visited for longer periods of
 time.
 }
 \note{
-The \code{observer} column contains many duplicates due to typos, alternative spellings of names, and inconsistent use of nicknames (e.g. Zé is a nickname used by both José Luis and José Paulo, all of which also appear with an unaccented "e").
+The \code{observer} column contains many duplicates due to typos,
+alternative spellings of names, and inconsistent use of nicknames (e.g. Zé
+is a nickname used by both José Luis and José Paulo, all of which also
+appear with an unaccented "e").
 }
 \keyword{datasets}

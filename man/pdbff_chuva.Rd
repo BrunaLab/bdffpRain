@@ -15,8 +15,12 @@ um tibble com 42552 linhas e 10 variáveis:
 \item{hora}{tempo de observação em 24 horas}
 \item{observador}{nome do observador}
 \item{chuva}{precipitação registrada em mm}
-\item{comentario}{notas consolidadas da coluna de notas de campo em planilhas de dados brutos, bem como comentários de texto feitos na coluna de tempo nos dados originais}
-\item{flag}{Acumulações de vários dias observadas em dados brutos (A), observações após pontos de dados ausentes (acumulações de vários dias assumidas, U), erro de dados (E), precipitação de rastreamento (T)}
+\item{comentario}{notas consolidadas da coluna de notas de campo em
+planilhas de dados brutos, bem como comentários de texto feitos na coluna de
+tempo nos dados originais}
+\item{flag}{Acumulações de vários dias observadas em dados brutos (A),
+observações após pontos de dados ausentes (acumulações de vários dias
+assumidas, U), erro de dados (E), precipitação de rastreamento (T)}
 }
 }
 \usage{
@@ -30,6 +34,9 @@ eram anotadas como acumuladas. Também existem lacunas nos dados quando os
 sites não foram visitados por longos períodos de tempo.
 }
 \note{
-A coluna do \code{observador} contém muitas duplicatas devido a erros de digitação, grafia alternativa de nomes e uso inconsistente de apelidos (por exemplo, Zé é um apelido usado por José Luis e José Paulo, todos os quais também aparecem com um "e" sem acento).
+A coluna do \code{observador} contém muitas duplicatas devido a erros de
+digitação, grafia alternativa de nomes e uso inconsistente de apelidos (por
+exemplo, Zé é um apelido usado por José Luis e José Paulo, todos os quais
+também aparecem com um "e" sem acento).
 }
 \keyword{datasets}
