@@ -21,9 +21,14 @@ knitr::opts_chunk$set(
 
 <!-- badges: end -->
 
-This repository houses the `bdffpRain` package and the raw data and wrangling code used to produce the `bdffp_rain` dataset.
+**Translation**: So far I have only translated documentation with Google Scholar, so I would appreciate help translating from English to Portuguese or correcting any mistranslations!
 
-# The R package
+*[Versão em português](https://github.com/BrunaLab/BDFFP-precipitation/blob/master/README.pt-BR.md)*
+
+
+This repository houses the `bdffpRain` package and the raw data and wrangling code used to produce the `bdffp_rain` (English) and `pdbff_chuva` (Portuguese) datasets.
+
+## The R package
 
 The `bdffpRain` R package contains cleaned daily precipitation data from 8 rain gauges at the Biological Dynamics of Forest Fragments Project between 1987 and 2010.  
 To install the package run:
@@ -33,21 +38,22 @@ install.packages("remotes")
 remotes::install_github("BrunaLab/bdffpRain")
 ```
 
-The only object the package contains is `bdffp_rain` which looks like this:
+The data is in `bdffp_rain`, which looks like this:
 
 ```{r}
 library(bdffpRain)
+data("bdffp_rain")
 head(bdffp_rain)
 ```
 
-Check the help file for detailed metadata with `?bdffp_rain`
+Check the help file for detailed metadata with `?bdffp_rain`.
 
-# Raw data and wrangling code
+## Raw data and wrangling code
 
 If you are interested in the raw data or the code used to clean and wrangle those data, you can fork this repository, or download it with the green "Code" button on this page.
 You'll find the raw data in a series of .XLS files in the `"data_raw"` directory and annotated wrangling code in the `"wrangling"` directory.
 
-# Data usage
+## Data usage
 
 If you wish to use this data for a publication, please cite:
 
@@ -57,6 +63,8 @@ The vignette for the package shows an example of how to use imputation to "fill 
 
 Additionally, there is old, probably broken code in the `"notes"` directory that may be useful.
 
-# Contributing
+## Contributing
 
 If you find mistakes or issues or would like to suggest improvements, please file an issue.
+
+

@@ -1,0 +1,65 @@
+---
+output: github_document
+---
+
+<!-- README.pt-BR.md is generated from README.pt-BR.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+# bdffpRain
+
+<!-- badges: start -->
+
+[![R build status](https://github.com/BrunaLab/BDFFP-precipitation/workflows/R-CMD-check/badge.svg)](https://github.com/BrunaLab/BDFFP-precipitation/actions)
+
+<!-- badges: end -->
+
+*[English Version](https://github.com/BrunaLab/BDFFP-precipitation/blob/master/README.md)*
+
+Este repositório abriga o pacote `bdffpRain` e os dados brutos e código de wrangling usados para produzir os conjuntos de dados` bdffp_rain` (inglês) e `pdbff_chuva` (português).
+
+## O pacote R
+
+O pacote `bdffpRain` R contém dados limpos de precipitação diária de 8 medidores de chuva no Projeto de Dinâmica Biológica de Fragmentos Florestais entre 1987 e 2010.
+Para instalar o pacote, execute:
+
+``` r
+install.packages("remotes")
+remotes::install_github("BrunaLab/bdffpRain")
+```
+
+Os dados estão em `pdbff_chuva`, que se parece com isto:
+
+```{r}
+library(bdffpRain)
+data("pdbff_chuva")
+head(pdbff_chuva)
+```
+
+Verifique o arquivo de ajuda para metadados detalhados com `?pdbff_chuva`.
+
+## Dados brutos e código de wrangling
+
+Se você estiver interessado nos dados brutos ou no código usado para limpar e arrumar esses dados, você pode bifurcar este repositório ou baixá-lo com o botão verde "Código" nesta página.
+Você encontrará os dados brutos em uma série de arquivos .XLS no diretório `"data_raw"` e o código de escrita anotado no diretório `"wrangling"`.
+
+## Uso de dados
+
+Se você deseja usar esses dados para uma publicação, cite:
+
+<!-- insert zenodo citation -->
+
+A vinheta do pacote mostra um exemplo de como usar a imputação para "preencher" as observações ausentes e produzir um conjunto de dados completo que pode ser usado para produzir números e estatísticas resumidas para a precipitação mensal no BDFFP.
+
+Além disso, existe um código antigo, provavelmente quebrado, no diretório `"notes"` que pode ser útil.
+
+## Contribuindo
+
+Se você encontrar erros ou problemas ou quiser sugerir melhorias, registre um problema.

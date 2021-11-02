@@ -502,7 +502,7 @@ A lot of potential duplicates due to typos.
 I don't know names in Portuguese well enough to do anything about this right now.
 
 ```{r}
-bdffp_rain %>% pull(observer) %>% unique() %>% sort()
+out %>% pull(observer) %>% unique() %>% sort()
 ```
 
 # Write to file
@@ -516,4 +516,33 @@ To update data in package
 
 ```{r}
 usethis::use_data(bdffp_rain, overwrite = TRUE)
+```
+
+# Translate to Portuguese
+
+Translate column headings and produce a second tibble in Portuguese.
+
+```{r}
+all_raw
+```
+
+```{r}
+pdbff_chuva <-
+  bdffp_rain %>% 
+  rename(
+    local = site,
+    lat = lat,
+    lon = lon,
+    data = date,
+    dia = doy,
+    hora = time,
+    observador = observer,
+    chuva = precip,
+    comentario = notes,
+    flag = flag #don't know how to translate this one
+  )
+```
+
+```{r}
+usethis::use_data(pdbff_chuva, overwrite = TRUE)
 ```

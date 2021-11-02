@@ -10,10 +10,18 @@ status](https://github.com/BrunaLab/BDFFP-precipitation/workflows/R-CMD-check/ba
 
 <!-- badges: end -->
 
-This repository houses the `bdffpRain` package and the raw data and
-wrangling code used to produce the `bdffp_rain` dataset.
+**Translation**: So far I have only translated documentation with Google
+Scholar, so I would appreciate help translating from English to
+Portuguese or correcting any mistranslations!
 
-# The R package
+*[Versão em
+português](https://github.com/BrunaLab/BDFFP-precipitation/blob/master/README.pt-BR.md)*
+
+This repository houses the `bdffpRain` package and the raw data and
+wrangling code used to produce the `bdffp_rain` (English) and
+`pdbff_chuva` (Portuguese) datasets.
+
+## The R package
 
 The `bdffpRain` R package contains cleaned daily precipitation data from
 8 rain gauges at the Biological Dynamics of Forest Fragments Project
@@ -25,11 +33,11 @@ install.packages("remotes")
 remotes::install_github("BrunaLab/bdffpRain")
 ```
 
-The only object the package contains is `bdffp_rain` which looks like
-this:
+The data is in `bdffp_rain`, which looks like this:
 
 ``` r
 library(bdffpRain)
+data("bdffp_rain")
 head(bdffp_rain)
 #>   site   lat    lon       date doy  time observer precip notes flag
 #> 1 km37 -2.43 -59.79 2004-10-04 278 14:20  Rogerio   14.0  <NA> <NA>
@@ -40,9 +48,9 @@ head(bdffp_rain)
 #> 6 km37 -2.43 -59.79 2004-10-09 283 07:30  Rogerio   14.8  <NA> <NA>
 ```
 
-Check the help file for detailed metadata with `?bdffp_rain`
+Check the help file for detailed metadata with `?bdffp_rain`.
 
-# Raw data and wrangling code
+## Raw data and wrangling code
 
 If you are interested in the raw data or the code used to clean and
 wrangle those data, you can fork this repository, or download it with
@@ -50,7 +58,7 @@ the green “Code” button on this page. You’ll find the raw data in a
 series of .XLS files in the `"data_raw"` directory and annotated
 wrangling code in the `"wrangling"` directory.
 
-# Data usage
+## Data usage
 
 If you wish to use this data for a publication, please cite:
 
@@ -64,7 +72,7 @@ precipitation at BDFFP.
 Additionally, there is old, probably broken code in the `"notes"`
 directory that may be useful.
 
-# Contributing
+## Contributing
 
 If you find mistakes or issues or would like to suggest improvements,
 please file an issue.
