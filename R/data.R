@@ -5,7 +5,7 @@
 #' wasn't visited for some time, measurements were noted as accumulated.  There
 #' are also gaps in the data when sites weren't visited for longer periods of
 #' time.
-#'
+#' @import tibble
 #' @format a tibble with 42552 rows and 10 variables:
 #' \describe{
 #'  \item{site}{site name}
@@ -38,7 +38,7 @@
 #' observadores. Quando um local não era visitado por algum tempo, as medições
 #' eram anotadas como acumuladas. Também existem lacunas nos dados quando os
 #' sites não foram visitados por longos períodos de tempo.
-#'
+#' @import tibble
 #' @format um tibble com 42552 linhas e 10 variáveis:
 #' \describe{
 #'  \item{local}{nome do site}

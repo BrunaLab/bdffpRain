@@ -9,7 +9,12 @@
 Provides daily precipitation records for 1987–2010 from eight rain guages across the Biological Dynamics of Forest Fragments Project (BDFFP), north of Manaus, Brazil.
 }
 \author{
-\strong{Maintainer}: Emilio Bruna \email{embruna@ufl.edu} (\href{https://orcid.org/0000-0003-3381-8477}{ORCID})
+\strong{Maintainer}: Eric Scott \email{scottericr@gmail.com} (\href{https://orcid.org/0000-0002-7430-7879}{ORCID})
+
+Authors:
+\itemize{
+  \item Emilio Bruna \email{embruna@ufl.edu} (\href{https://orcid.org/0000-0003-3381-8477}{ORCID})
+}
 
 }
 \keyword{internal}
