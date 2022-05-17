@@ -7,6 +7,7 @@
 
 [![R build
 status](https://github.com/BrunaLab/BDFFP-precipitation/workflows/R-CMD-check/badge.svg)](https://github.com/BrunaLab/BDFFP-precipitation/actions)
+[![DOI](https://zenodo.org/badge/271884316.svg)](https://zenodo.org/badge/latestdoi/271884316)
 
 <!-- badges: end -->
 
@@ -34,13 +35,15 @@ Os dados estão em `pdbff_chuva`, que se parece com isto:
 library(bdffpRain)
 data("pdbff_chuva")
 head(pdbff_chuva)
-#>   local   lat    lon       data dia  hora observador chuva comentario flag
-#> 1  km37 -2.43 -59.79 2004-10-04 278 14:20    Rogerio  14.0       <NA> <NA>
-#> 2  km37 -2.43 -59.79 2004-10-05 279  <NA>       <NA>    NA       <NA> <NA>
-#> 3  km37 -2.43 -59.79 2004-10-06 280 07:30    Rogerio   2.6       <NA>    U
-#> 4  km37 -2.43 -59.79 2004-10-07 281  <NA>       <NA>    NA       <NA> <NA>
-#> 5  km37 -2.43 -59.79 2004-10-08 282 12:30   Apostolo  36.8       <NA>    U
-#> 6  km37 -2.43 -59.79 2004-10-09 283 07:30    Rogerio  14.8       <NA> <NA>
+#> # A tibble: 6 × 10
+#>   local   lat   lon data         dia hora  observador chuva comentario flag 
+#>   <chr> <dbl> <dbl> <date>     <dbl> <chr> <chr>      <dbl> <chr>      <chr>
+#> 1 km37  -2.43 -59.8 2004-10-04   278 14:20 Rogerio     14   <NA>       <NA> 
+#> 2 km37  -2.43 -59.8 2004-10-05   279 <NA>  <NA>        NA   <NA>       <NA> 
+#> 3 km37  -2.43 -59.8 2004-10-06   280 07:30 Rogerio      2.6 <NA>       U    
+#> 4 km37  -2.43 -59.8 2004-10-07   281 <NA>  <NA>        NA   <NA>       <NA> 
+#> 5 km37  -2.43 -59.8 2004-10-08   282 12:30 Apostolo    36.8 <NA>       U    
+#> 6 km37  -2.43 -59.8 2004-10-09   283 07:30 Rogerio     14.8 <NA>       <NA>
 ```
 
 Verifique o arquivo de ajuda para metadados detalhados com

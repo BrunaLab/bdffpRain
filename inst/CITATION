@@ -1,0 +1,24 @@
+citHeader("To cite bdffpRain in publications use:")
+
+citEntry(
+  entry    = "Misc",
+  title    = "bdffpRain: Rain gauge data from the Biological Dynamics of Forest Fragments project",
+  author   = c(
+    person(given = c("Eric", "R"),
+           family = "Scott",
+           role = c("aut", "cre"),
+           email = "scottericr@gmail.com",
+           comment = c(ORCID = "0000-0002-7430-7879")),
+    person(given = c("Emilio", "M"),
+           family = "Bruna",
+           role = c("aut"),
+           email = "embruna@ufl.edu",
+           comment = c(ORCID = "0000-0003-3381-8477"))
+           ),
+  publisher  = "Zenodo",
+  year     = "2022",
+  version   = package_version("0.0.1"),
+  doi   = "10.5281/zenodo.6557720",
+  url      = "https://doi.org/10.5281/zenodo.6557720",
+  textVersion = "Scott ER, Bruna EM. (2022). bdffpRain: Rain gauge data from the Biological Dynamics of Forest Fragments project (Version 0.0.1). Zenodo. https://doi.org/10.5281/zenodo.6557720 "
+)

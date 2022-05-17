@@ -2,12 +2,12 @@ Package: bdffpRain
 Title: Rain gauge data from the Biological Dynamics of Forest Fragments project
 Version: 0.0.1
 Authors@R: c(
-    person(given = "Eric",
+    person(given = c("Eric", "R"),
            family = "Scott",
            role = c("aut", "cre"),
            email = "scottericr@gmail.com",
            comment = c(ORCID = "0000-0002-7430-7879")),
-    person(given = "Emilio",
+    person(given = c("Emilio", "M"),
            family = "Bruna",
            role = c("aut"),
            email = "embruna@ufl.edu",

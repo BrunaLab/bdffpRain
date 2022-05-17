@@ -18,6 +18,7 @@ knitr::opts_chunk$set(
 <!-- badges: start -->
 
 [![R build status](https://github.com/BrunaLab/BDFFP-precipitation/workflows/R-CMD-check/badge.svg)](https://github.com/BrunaLab/BDFFP-precipitation/actions)
+[![DOI](https://zenodo.org/badge/271884316.svg)](https://zenodo.org/badge/latestdoi/271884316)
 
 <!-- badges: end -->
 
