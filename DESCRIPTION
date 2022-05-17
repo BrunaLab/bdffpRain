@@ -1,6 +1,6 @@
 Package: bdffpRain
 Title: Rain gauge data from the Biological Dynamics of Forest Fragments project
-Version: 0.0.0.9001
+Version: 0.0.1
 Authors@R: c(
     person(given = "Eric",
            family = "Scott",
