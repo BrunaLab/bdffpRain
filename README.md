@@ -66,7 +66,7 @@ wrangling code in the `"wrangling"` directory.
 If you wish to use this data for a publication, please cite:
 
 ``` r
-Scott, Eric R. & Emilio M. Bruna. 2022. BrunaLab/bdffpRain: initial release for Zenodo archiving (v0.0.1). Zenodo. https://doi.org/10.5281/zenodo.6557721
+"Scott, Eric R. & Emilio M. Bruna. 2022. BrunaLab/bdffpRain (v0.0.1). Zenodo. https://doi.org/10.5281/zenodo.6557721"
 ```
 
 If you prefer the citation in .bib format you can copy it here:
@@ -75,9 +75,7 @@ If you prefer the citation in .bib format you can copy it here:
 @software{eric_r_scott_2022_6557721,
   author       = {Eric R Scott and
                   Emilio M. Bruna},
-  title        = {BrunaLab/bdffpRain: initial release for Zenodo
-                   archiving
-                  },
+  title        = {BrunaLab/bdffpRain},
   month        = may,
   year         = 2022,
   publisher    = {Zenodo},

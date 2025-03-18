@@ -63,7 +63,7 @@ Caso sejam usados o pacote ou dados numa publicação, por favor cite:
 
 ``` r
 
-Scott, Eric R. & Emilio M. Bruna. 2022. BrunaLab/bdffpRain: initial release for Zenodo archiving (v0.0.1). Zenodo. https://doi.org/10.5281/zenodo.6557721
+"Scott, Eric R. & Emilio M. Bruna. 2022. BrunaLab/bdffpRain (v0.0.1). Zenodo. https://doi.org/10.5281/zenodo.6557721"
 ```
 
 Em a referência em formato .bib:
@@ -73,9 +73,7 @@ Em a referência em formato .bib:
 @software{eric_r_scott_2022_6557721,
   author       = {Eric R Scott and
                   Emilio M. Bruna},
-  title        = {BrunaLab/bdffpRain: initial release for Zenodo
-                   archiving
-                  },
+  title        = {BrunaLab/bdffpRain},
   month        = may,
   year         = 2022,
   publisher    = {Zenodo},
