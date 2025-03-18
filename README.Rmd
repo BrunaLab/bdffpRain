@@ -56,9 +56,33 @@ You'll find the raw data in a series of .XLS files in the `"data_raw"` directory
 
 ## Data usage
 
-If you wish to use this data for a publication, please cite:
+If you wish to use this data for a publication, please cite:  
 
-<!-- insert zenodo citation -->
+```{r}
+
+Scott, Eric R. & Emilio M. Bruna. 2022. BrunaLab/bdffpRain: initial release for Zenodo archiving (v0.0.1). Zenodo. https://doi.org/10.5281/zenodo.6557721
+
+```
+
+If you prefer the citation in .bib format you can copy it here: 
+
+```{r}
+
+@software{eric_r_scott_2022_6557721,
+  author       = {Eric R Scott and
+                  Emilio M. Bruna},
+  title        = {BrunaLab/bdffpRain: initial release for Zenodo
+                   archiving
+                  },
+  month        = may,
+  year         = 2022,
+  publisher    = {Zenodo},
+  version      = {v0.0.1},
+  doi          = {10.5281/zenodo.6557721},
+  url          = {https://doi.org/10.5281/zenodo.6557721},
+}
+```
+
 
 The vignette for the package shows an example of how to use imputation to "fill in" missing observations and produce a complete dataset that can be used to produce figures and summary statistics for monthly precipitation at BDFFP.
 
