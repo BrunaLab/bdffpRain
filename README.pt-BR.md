@@ -59,9 +59,31 @@ código de escrita anotado no diretório `"wrangling"`.
 
 ## Uso de dados
 
-Se você deseja usar esses dados para uma publicação, cite:
+Caso sejam usados o pacote ou dados numa publicação, por favor cite:
 
-<!-- insert zenodo citation -->
+``` r
+
+Scott, Eric R. & Emilio M. Bruna. 2022. BrunaLab/bdffpRain: initial release for Zenodo archiving (v0.0.1). Zenodo. https://doi.org/10.5281/zenodo.6557721
+```
+
+Em a referência em formato .bib:
+
+``` r
+
+@software{eric_r_scott_2022_6557721,
+  author       = {Eric R Scott and
+                  Emilio M. Bruna},
+  title        = {BrunaLab/bdffpRain: initial release for Zenodo
+                   archiving
+                  },
+  month        = may,
+  year         = 2022,
+  publisher    = {Zenodo},
+  version      = {v0.0.1},
+  doi          = {10.5281/zenodo.6557721},
+  url          = {https://doi.org/10.5281/zenodo.6557721},
+}
+```
 
 A vinheta do pacote mostra um exemplo de como usar a imputação para
 “preencher” as observações ausentes e produzir um conjunto de dados
