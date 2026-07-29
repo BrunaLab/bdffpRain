@@ -13,7 +13,7 @@ status](https://github.com/BrunaLab/BDFFP-precipitation/workflows/R-CMD-check/ba
 
 **Translation**: So far I have only translated documentation with Google
 Scholar, so I would appreciate help translating from English to
-Portuguese or correcting any mistranslations!
+Portuguese or correcting any mis-translations!
 
 *[Versão em
 português](https://github.com/BrunaLab/BDFFP-precipitation/blob/master/README.pt-BR.md)*
