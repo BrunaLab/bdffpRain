@@ -3,7 +3,6 @@
 
 on:
   push:
-    # Runs on every commit to any branch
   pull_request:
     branches:
       - main
@@ -26,64 +25,28 @@ jobs:
           - {os: ubuntu-latest, r: 'release'}
 
     env:
-      R_REMOTES_NO_ERRORS_FROM_WARNINGS: true
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
 
     steps:
       - uses: actions/checkout@v4
 
+      - uses: r-lib/actions/setup-pandoc@v2
+
       - uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ matrix.config.r }}
+          http-user-agent: ${{ matrix.config.http-user-agent }}
           use-public-rspm: true
 
-      - uses: r-lib/actions/setup-pandoc@v2
-
-      - name: Query dependencies
-        run: |
-          # Use pak for faster package installation
-          install.packages('pak', repos = sprintf('https://r-lib.github.io/p/pak/stable/%s/%s/%s', .Platform$pkgType, R.Version()$os, R.Version()$arch))
-          deps <- pak::pkg_deps('local::.')
-          saveRDS(deps, ".github/depends.Rds", version = 2)
-          writeLines(sprintf("R-%i.%i", getRversion()$major, getRversion()$minor), ".github/R-version")
-        shell: Rscript {0}
-
-      - name: Restore R package cache
-        uses: actions/cache@v4
+      - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          path: ${{ env.R_LIBS_USER }}
-          key: ${{ runner.os }}-${{ hashFiles('.github/R-version') }}-1-${{ hashFiles('.github/depends.Rds') }}
-          restore-keys: ${{ runner.os }}-${{ hashFiles('.github/R-version') }}-1-
+          dependencies: '"all"'
+          extra-packages: any::rcmdcheck
 
-      - name: Install system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          pak::pkg_system_requirements('deps::.', 'ubuntu', '22.04')
-        shell: Rscript {0}
-
-      - name: Install dependencies
-        run: |
-          pak::pkg_install('any::rcmdcheck')
-          pak::pkg_install('any::knitr')  # Add this line
-          pak::pkg_install('deps::.')
-        shell: Rscript {0}
-
-      - name: Check
-        env:
-          _R_CHECK_CRAN_INCOMING_REMOTE_: false
-        run: |
-          options(crayon.enabled = TRUE)
-          # Skip slow components for faster builds
-          rcmdcheck::rcmdcheck(
-            args = c("--no-manual", "--no-vignettes", "--no-build-vignettes"),
-            error_on = "warning",
-            check_dir = "check"
-          )
-        shell: Rscript {0}
-
-      - name: Upload check results
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - uses: r-lib/actions/check-r-package@v2
         with:
-          name: ${{ runner.os }}-r${{ matrix.config.r }}-results
-          path: check
+          upload-snapshots: true
+          build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
+
+
