@@ -63,8 +63,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # pak is much faster than remotes for package installation
           pak::pkg_install('any::rcmdcheck')
+          pak::pkg_install('any::knitr')  # Add this line
           pak::pkg_install('deps::.')
         shell: Rscript {0}
 
