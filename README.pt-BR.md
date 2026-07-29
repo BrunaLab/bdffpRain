@@ -16,7 +16,7 @@ Version](https://github.com/BrunaLab/BDFFP-precipitation/blob/master/README.md)*
 
 Este repositório abriga o pacote `bdffpRain` e os dados brutos e código
 de wrangling usados para produzir os conjuntos de dados`bdffp_rain`
-(inglês) e `pdbff_chuva` (português).
+(Inglês) e `pdbff_chuva` (Português).
 
 ## O pacote R
 
